@@ -477,7 +477,14 @@ transaksiRoutes.delete('/api/transaksi/bulk', requireAuth, requireRole('super_ad
       return c.json({ success: true, jumlah_dihapus: 0, message: 'Tidak ada transaksi yang cocok dengan rentang ini' });
     }
 
+    // FIX: sebelumnya hanya menghapus detail_transaksi dan transaksi, tapi
+    // meninggalkan baris transaksi_pembayaran dan transaksi_pelunasan sebagai
+    // orphan (schema tidak pakai ON DELETE CASCADE). Sekarang semua tabel
+    // turunan dibersihkan dulu sebelum baris transaksi induknya dihapus,
+    // agar tidak ada baris yang menggantung tanpa parent.
     await db.batch([
+      db.prepare(`DELETE FROM transaksi_pelunasan WHERE transaksi_id IN (SELECT id FROM transaksi ${whereSql})`).bind(...params),
+      db.prepare(`DELETE FROM transaksi_pembayaran WHERE transaksi_id IN (SELECT id FROM transaksi ${whereSql})`).bind(...params),
       db.prepare(`DELETE FROM detail_transaksi WHERE transaksi_id IN (SELECT id FROM transaksi ${whereSql})`).bind(...params),
       db.prepare(`DELETE FROM transaksi ${whereSql}`).bind(...params),
     ]);
