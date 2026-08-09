@@ -22,11 +22,11 @@ jobs:
       - name: Install dependency npm
         run: npm install
 
+      - name: Unit test (logika hitung pembayaran, dll)
+        run: node --test tests/unit/helpers.test.mjs
+
       - name: Install browser Chromium (untuk e2e test)
         run: npx playwright install --with-deps chromium
-
-      - name: Unit test (logika hitung pembayaran, dll)
-        run: npm run test:unit
 
       - name: E2E test (wizard setup, login, role admin/kasir)
         run: npm run test:e2e

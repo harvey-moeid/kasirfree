@@ -25,9 +25,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Fetch vendor assets
-        run: node scripts/vendor-fetch.mjs
-
       - name: Build CSS (Tailwind)
         run: npx tailwindcss -i ./src-css/input.css -o ./public/styles.css --minify
 
