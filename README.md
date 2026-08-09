@@ -90,8 +90,6 @@ Repo: `github.com/ppicwkb/umkm` • Live: `https://umkm.ppicwkb.workers.dev`
 
 - **"Backend"**: router mini-Hono buatan sendiri (`public/js/mini-hono.js`)
   yang jalan **di dalam browser**, meniru API [Hono](https://hono.dev) asli
-  (dipakai juga di versi cloud lama, `src/`, yang sekarang nonaktif —
-  lihat `PANDUAN-MODE-LOKAL.md`)
 - **Database**: SQLite di browser via [sql.js](https://sql.js.org) (WASM),
   persisten lewat IndexedDB
 - **Storage foto produk**: IndexedDB (`local-images.js`)
@@ -108,21 +106,27 @@ Repo: `github.com/ppicwkb/umkm` • Live: `https://umkm.ppicwkb.workers.dev`
 
 ```
 umkm/
-├── src/
-│   ├── index.ts                 ← Backend Hono (satu-satunya sumber kebenaran API)
-│   └── lib/
-│       ├── crypto.ts             ← hash password (PBKDF2+salt) & session token (HMAC)
-│       └── auth-middleware.ts    ← requireAuth() & requireRole()
-├── migrations/                  ← 0001–0013, jalankan BERURUTAN (lihat PANDUAN-DEPLOY.md)
+├── migrations/                  ← 0001–0014 (referensi skema, lihat catatan di public/migrations/)
 ├── public/
 │   ├── login.html                ← form login
 │   ├── index.html                  ← halaman kasir (POS)
 │   ├── admin.html                   ← panel admin
 │   ├── manifest.json                 ← PWA manifest
 │   ├── sw.js                          ← service worker (app-shell, bukan API)
+│   ├── migrations/                     ← 0001–0014, SATU-SATUNYA yang dijalankan runtime (local-db.js fetch dari sini)
+│   ├── js/
+│   │   ├── local-app.js                 ← router utama (mini-Hono), satu-satunya sumber kebenaran API
+│   │   ├── local-db.js                   ← SQLite di browser (sql.js) + persist ke IndexedDB
+│   │   ├── local-images.js                ← storage foto produk (IndexedDB)
+│   │   ├── local-auth.js / local-auth-middleware.js ← sesi login (sessionStorage, tanpa cookie/JWT)
+│   │   ├── crypto.js                       ← hash password (PBKDF2+salt)
+│   │   ├── routes/                          ← 1 file per domain (produk, transaksi, laporan, dst.)
+│   │   └── pages/                            ← logika tiap halaman (admin-app.js, kasir-app.js, login-app.js)
 │   └── icons/                          ← ikon PWA
 ├── src-css/input.css             ← sumber Tailwind (di-build ke public/styles.css)
-├── scripts/gen-password-hash.mjs ← generate hash+salt password baru
+├── scripts/
+│   ├── gen-password-hash.mjs     ← generate hash+salt password baru
+│   └── check-migrations-sync.mjs ← guard CI: migrations/ vs public/migrations/ harus identik
 ├── wrangler.toml                 ← konfigurasi hosting statis (Cloudflare Workers Assets)
 └── package.json
 ```
