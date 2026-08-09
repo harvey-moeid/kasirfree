@@ -13,8 +13,26 @@ laporanRoutes.get('/api/laporan/harian', requireAuth, async (c) => {
   const session = c.get('session');
   const tanggal = c.req.query('tanggal') ?? todayWIB();
 
+  // FIX: sebelumnya memakai SUM(total_bayar) tanpa pengecualian. Untuk preorder
+  // dengan status_bayar 'dp' atau 'belum_bayar', total_bayar = nilai penuh pesanan,
+  // padahal yang benar-benar masuk kas hari itu hanya jumlah_dp (sebagian atau 0).
+  // Akibatnya laporan harian menampilkan angka lebih tinggi dari kas yang sesungguhnya
+  // diterima, dan owner salah kira omzetnya sudah masuk semua.
+  // Sekarang: untuk preorder yang belum lunas, hanya jumlah_dp yang dihitung.
+  // Pelunasan yang masuk di hari berbeda (saat pickup) tercatat di tabel
+  // transaksi_pelunasan — di luar scope laporan harian berbasis tanggal transaksi ini.
   let sql = `
-    SELECT COUNT(*) as jumlah_transaksi, COALESCE(SUM(total_bayar), 0) as total_penjualan
+    SELECT
+      COUNT(*) as jumlah_transaksi,
+      COALESCE(SUM(
+        CASE
+          WHEN is_preorder = 1 AND status_bayar IN ('dp', 'belum_bayar') THEN jumlah_dp
+          ELSE total_bayar
+        END
+      ), 0) as total_penjualan,
+      COALESCE(SUM(
+        CASE WHEN is_preorder = 1 AND status_bayar IN ('dp', 'belum_bayar') THEN sisa_bayar ELSE 0 END
+      ), 0) as total_piutang_preorder
     FROM transaksi WHERE ${wibDateExpr('created_at')} = date(?) AND status = 'selesai'`;
   const params: any[] = [tanggal];
 
@@ -60,8 +78,16 @@ laporanRoutes.get('/api/laporan/tren-penjualan', requireAuth, async (c) => {
   const session = c.get('session');
   const hari = Math.min(Math.max(Number(c.req.query('hari') ?? 7), 1), 90);
 
+  // FIX: sama seperti /api/laporan/harian — pakai jumlah_dp untuk preorder
+  // DP/belum_bayar supaya grafik tren tidak melebih-lebihkan cash yang masuk.
   let sql = `
-    SELECT ${wibDateExpr('created_at')} as tanggal, COUNT(*) as jumlah_transaksi, COALESCE(SUM(total_bayar), 0) as total_penjualan
+    SELECT ${wibDateExpr('created_at')} as tanggal, COUNT(*) as jumlah_transaksi,
+      COALESCE(SUM(
+        CASE
+          WHEN is_preorder = 1 AND status_bayar IN ('dp', 'belum_bayar') THEN jumlah_dp
+          ELSE total_bayar
+        END
+      ), 0) as total_penjualan
     FROM transaksi
     WHERE status = 'selesai' AND ${wibDateExpr('created_at')} >= date(?, ?)`;
   const params: any[] = [todayWIB(), `-${hari - 1} days`];
@@ -206,8 +232,16 @@ laporanRoutes.get('/api/laporan/jam-ramai', requireAuth, async (c) => {
   const session = c.get('session');
   const { dari, sampai } = c.req.query();
 
+  // FIX: sama seperti /api/laporan/harian — pakai jumlah_dp untuk preorder
+  // DP/belum_bayar supaya distribusi omzet per jam tidak melebih-lebihkan.
   let sql = `
-    SELECT ${wibHourExpr('created_at')} as jam, COUNT(*) as jumlah_transaksi, COALESCE(SUM(total_bayar), 0) as total_omzet
+    SELECT ${wibHourExpr('created_at')} as jam, COUNT(*) as jumlah_transaksi,
+      COALESCE(SUM(
+        CASE
+          WHEN is_preorder = 1 AND status_bayar IN ('dp', 'belum_bayar') THEN jumlah_dp
+          ELSE total_bayar
+        END
+      ), 0) as total_omzet
     FROM transaksi
     WHERE status = 'selesai'`;
   const params: any[] = [];
