@@ -53,6 +53,7 @@
             --shadow-lg: 0 24px 60px -16px rgba(6,11,26,.55), 0 8px 20px -8px rgba(6,11,26,.3);
             --shadow-gold: 0 12px 28px -8px rgba(162,116,35,.55), 0 2px 8px rgba(214,172,66,.25);
         }
+        *, *::before, *::after { box-sizing: border-box; }
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
             background-color: var(--navy-700);
@@ -123,6 +124,7 @@
         /* Input premium: border tipis + focus glow emas yang lembut,
            bukan ring biru default. */
         .input-premium {
+            box-sizing: border-box;
             background: #fff;
             border: 1.5px solid #e7e2d6;
             transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
@@ -140,7 +142,8 @@
         }
 
         @media (min-width: 1024px) {
-            body { overflow: auto; display: flex; align-items: center; justify-content: center; }
+            *, *::before, *::after { box-sizing: border-box; }
+        body { overflow: auto; display: flex; align-items: center; justify-content: center; }
             .login-card {
                 flex-direction: row !important;
                 max-width: 860px;
