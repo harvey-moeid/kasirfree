@@ -68,16 +68,25 @@ shiftRoutes.get('/api/shift/aktif', requireAuth, async (c) => {
   // Kembalian HANYA pernah diambil dari cash (aturan bisnis di
   // hitungSplitPayment), jadi kas fisik bersih = total tunai diserahkan
   // dikurangi total kembalian yang sudah dikeluarkan sepanjang shift ini.
+  // FIX: sebelumnya hanya menghitung cash dari transaksi_pembayaran (bayar
+  // di muka saat transaksi dibuat). Cash dari pelunasan preorder (tabel
+  // transaksi_pelunasan) tidak pernah masuk hitungan → kasir yang terima
+  // pelunasan cash selalu terlihat "kurang" padahal uangnya ada di laci.
+  // Sekarang ditambahkan subquery untuk transaksi_pelunasan.shift_id.
   const kasSaatIni = await db
     .prepare(
       `SELECT
          COALESCE((SELECT SUM(tp.jumlah) FROM transaksi_pembayaran tp
                     JOIN transaksi t ON t.id = tp.transaksi_id
-                    WHERE t.shift_id = ? AND tp.metode_bayar = 'cash' AND t.status = 'selesai'), 0) as total_tunai_diterima,
+                    WHERE t.shift_id = ? AND tp.metode_bayar = 'cash' AND t.status = 'selesai'), 0)
+         +
+         COALESCE((SELECT SUM(tpl.jumlah) FROM transaksi_pelunasan tpl
+                    WHERE tpl.shift_id = ? AND tpl.metode_bayar = 'cash'), 0)
+         as total_tunai_diterima,
          COALESCE((SELECT SUM(t.kembalian) FROM transaksi t
                     WHERE t.shift_id = ? AND t.status = 'selesai'), 0) as total_kembalian`
     )
-    .bind(shift.id, shift.id)
+    .bind(shift.id, shift.id, shift.id)
     .first<any>();
   const netTunai = (kasSaatIni?.total_tunai_diterima ?? 0) - (kasSaatIni?.total_kembalian ?? 0);
 
@@ -119,16 +128,23 @@ shiftRoutes.post('/api/shift/tutup', requireAuth, async (c) => {
     // diserahkan dikurangi total kembalian yang sudah dikeluarkan shift ini.
     // (Sebelum fix ini, kembalian sama sekali tidak dikurangi — kas sistem
     // akhir jadi jauh lebih besar dari kas fisik yang sesungguhnya ada.)
+    // FIX: sama seperti /api/shift/aktif — tambah cash dari transaksi_pelunasan
+    // supaya kas sistem saat tutup shift akurat untuk kasir yang menerima
+    // pelunasan preorder (sebelumnya uang cash itu tidak terhitung sama sekali).
     const rekap = await db
       .prepare(
         `SELECT
            COALESCE((SELECT SUM(tp.jumlah) FROM transaksi_pembayaran tp
                       JOIN transaksi t ON t.id = tp.transaksi_id
-                      WHERE t.shift_id = ? AND tp.metode_bayar = 'cash' AND t.status = 'selesai'), 0) as total_tunai_diterima,
+                      WHERE t.shift_id = ? AND tp.metode_bayar = 'cash' AND t.status = 'selesai'), 0)
+           +
+           COALESCE((SELECT SUM(tpl.jumlah) FROM transaksi_pelunasan tpl
+                      WHERE tpl.shift_id = ? AND tpl.metode_bayar = 'cash'), 0)
+           as total_tunai_diterima,
            COALESCE((SELECT SUM(t.kembalian) FROM transaksi t
                       WHERE t.shift_id = ? AND t.status = 'selesai'), 0) as total_kembalian`
       )
-      .bind(shift.id, shift.id)
+      .bind(shift.id, shift.id, shift.id)
       .first<any>();
 
     const netTunai = (rekap?.total_tunai_diterima ?? 0) - (rekap?.total_kembalian ?? 0);

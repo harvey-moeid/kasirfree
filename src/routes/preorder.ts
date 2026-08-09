@@ -146,11 +146,21 @@ preorderRoutes.post('/api/preorder/:id/pelunasan', requireAuth, async (c) => {
       );
     }
 
+    // FIX: rekam shift_id aktif kasir yang menerima pelunasan ini, agar
+    // cash pelunasan bisa dihitung dalam rekonsiliasi shift (sebelumnya
+    // shift_id tidak ada di tabel ini sehingga uang cash yang masuk lewat
+    // jalur pelunasan tidak pernah terhitung di kas sistem shift kasir).
+    const shiftAktifPelunasan = await db
+      .prepare("SELECT id FROM shift_kasir WHERE kasir_id = ? AND status = 'buka' ORDER BY id DESC LIMIT 1")
+      .bind(session.uid)
+      .first<any>();
+    const shiftIdPelunasan = shiftAktifPelunasan?.id ?? null;
+
     await db.batch(
       hasil.entries.map((entry) =>
         db
-          .prepare(`INSERT INTO transaksi_pelunasan (transaksi_id, jumlah, metode_bayar, user_id) VALUES (?, ?, ?, ?)`)
-          .bind(id, entry.jumlah, entry.metode, session.uid)
+          .prepare(`INSERT INTO transaksi_pelunasan (transaksi_id, jumlah, metode_bayar, user_id, shift_id) VALUES (?, ?, ?, ?, ?)`)
+          .bind(id, entry.jumlah, entry.metode, session.uid, shiftIdPelunasan)
       )
     );
 
