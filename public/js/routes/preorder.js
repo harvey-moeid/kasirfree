@@ -132,9 +132,18 @@ preorderRoutes.post('/api/preorder/:id/pelunasan', requireAuth, async (c) => {
             // Belum ada apa pun yang tersimpan untuk request ini, aman untuk retry.
             return c.json({ success: false, error: 'Sisa bayar sudah berubah (ada pelunasan lain barusan) — refresh dulu lalu cek ulang sisanya.' }, 409);
         }
+        // FIX: rekam shift_id kasir yang menerima pelunasan ini supaya cash
+        // pelunasan ikut dihitung di rekonsiliasi shift (sebelumnya tidak ada
+        // shift_id di sini, kas shift kasir selalu 'kurang' kalau ada pelunasan
+        // cash yang diterima di shift mereka).
+        const shiftAktifPelunasan = await db
+            .prepare("SELECT id FROM shift_kasir WHERE kasir_id = ? AND status = 'buka' ORDER BY id DESC LIMIT 1")
+            .bind(session.uid)
+            .first();
+        const shiftIdPelunasan = shiftAktifPelunasan?.id ?? null;
         await db.batch(hasil.entries.map((entry) => db
-            .prepare(`INSERT INTO transaksi_pelunasan (transaksi_id, jumlah, metode_bayar, user_id) VALUES (?, ?, ?, ?)`)
-            .bind(id, entry.jumlah, entry.metode, session.uid)));
+            .prepare(`INSERT INTO transaksi_pelunasan (transaksi_id, jumlah, metode_bayar, user_id, shift_id) VALUES (?, ?, ?, ?, ?)`)
+            .bind(id, entry.jumlah, entry.metode, session.uid, shiftIdPelunasan)));
         await catatLog(db, session, 'lunasi', 'transaksi', id, `Pelunasan preorder ${trx.kode_transaksi}: diterima Rp ${Math.ceil(hasil.totalDiterima).toLocaleString('id-ID')}, sisa Rp ${Math.ceil(Math.max(0, sisaBaru)).toLocaleString('id-ID')}`);
         return c.json({ success: true, status_bayar: statusBaru, sisa_bayar: Math.max(0, sisaBaru) });
     }
