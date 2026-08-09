@@ -11,8 +11,19 @@ laporanRoutes.get('/api/laporan/harian', requireAuth, async (c) => {
     const db = c.env.DB;
     const session = c.get('session');
     const tanggal = c.req.query('tanggal') ?? todayWIB();
+    // FIX: sebelumnya SUM(total_bayar) tanpa pengecualian — untuk preorder DP,
+    // total_bayar = nilai penuh pesanan, tapi kas yang masuk hari itu hanya
+    // jumlah_dp. Sekarang hanya hitung yang benar-benar sudah diterima.
+    // Kolom tambahan total_piutang_preorder = sisa yang belum dilunasi dari
+    // preorder hari itu, agar owner bisa lihat selisihnya secara eksplisit.
     let sql = `
-    SELECT COUNT(*) as jumlah_transaksi, COALESCE(SUM(total_bayar), 0) as total_penjualan
+    SELECT COUNT(*) as jumlah_transaksi,
+      COALESCE(SUM(
+        CASE WHEN is_preorder = 1 AND status_bayar IN ('dp','belum_bayar') THEN jumlah_dp ELSE total_bayar END
+      ), 0) as total_penjualan,
+      COALESCE(SUM(
+        CASE WHEN is_preorder = 1 AND status_bayar IN ('dp','belum_bayar') THEN sisa_bayar ELSE 0 END
+      ), 0) as total_piutang_preorder
     FROM transaksi WHERE ${wibDateExpr('created_at')} = date(?) AND status = 'selesai'`;
     const params = [tanggal];
     if (session.role !== 'super_admin') {
@@ -58,8 +69,12 @@ laporanRoutes.get('/api/laporan/tren-penjualan', requireAuth, async (c) => {
     const db = c.env.DB;
     const session = c.get('session');
     const hari = Math.min(Math.max(Number(c.req.query('hari') ?? 7), 1), 90);
+    // FIX: sama seperti laporan harian — pakai jumlah_dp untuk preorder DP
     let sql = `
-    SELECT ${wibDateExpr('created_at')} as tanggal, COUNT(*) as jumlah_transaksi, COALESCE(SUM(total_bayar), 0) as total_penjualan
+    SELECT ${wibDateExpr('created_at')} as tanggal, COUNT(*) as jumlah_transaksi,
+      COALESCE(SUM(
+        CASE WHEN is_preorder = 1 AND status_bayar IN ('dp','belum_bayar') THEN jumlah_dp ELSE total_bayar END
+      ), 0) as total_penjualan
     FROM transaksi
     WHERE status = 'selesai' AND ${wibDateExpr('created_at')} >= date(?, ?)`;
     const params = [todayWIB(), `-${hari - 1} days`];
@@ -215,8 +230,12 @@ laporanRoutes.get('/api/laporan/jam-ramai', requireAuth, async (c) => {
     const db = c.env.DB;
     const session = c.get('session');
     const { dari, sampai } = c.req.query();
+    // FIX: sama seperti laporan harian — pakai jumlah_dp untuk preorder DP
     let sql = `
-    SELECT ${wibHourExpr('created_at')} as jam, COUNT(*) as jumlah_transaksi, COALESCE(SUM(total_bayar), 0) as total_omzet
+    SELECT ${wibHourExpr('created_at')} as jam, COUNT(*) as jumlah_transaksi,
+      COALESCE(SUM(
+        CASE WHEN is_preorder = 1 AND status_bayar IN ('dp','belum_bayar') THEN jumlah_dp ELSE total_bayar END
+      ), 0) as total_omzet
     FROM transaksi
     WHERE status = 'selesai'`;
     const params = [];
@@ -245,72 +264,64 @@ laporanRoutes.get('/api/laporan/jam-ramai', requireAuth, async (c) => {
 });
 /**
  * Kinerja per kasir/staff — breakdown "siapa jual berapa" dalam rentang
- * tanggal filter. Dua sumber digabung di JS (bukan satu JOIN besar) karena
- * beda level agregasi: omzet dihitung dari detail_transaksi (supaya item
- * yang dibatalkan per-item tidak ikut kehitung, sama seperti /laporan/margin),
- * sedangkan selisih kas dihitung dari shift_kasir yang sudah ditutup
- * (waktu_tutup, bukan waktu_buka, supaya konsisten dgn kapan shift itu
- * "selesai" dan masuk rentang filter tanggal).
+ * tanggal filter. Tiga query digabung di JS karena beda level agregasi:
+ *
+ * FIX #5: sebelumnya omzet dari SUM(dt.subtotal) = nilai item SEBELUM diskon,
+ * sedangkan /laporan/harian pakai total_bayar = SETELAH diskon. Angka per
+ * kasir dan harian tidak pernah cocok kalau ada transaksi diskon. Sekarang
+ * pisah menjadi:
+ *   - sqlTrx: omzet dari level transaksi (total_bayar, konsisten dgn harian,
+ *     dengan DP-correction), GROUP BY kasir — tidak ada double-count dari JOIN
+ *   - sqlItem: qty item aktif dari level detail (is_batal=0 tetap dikecualikan)
+ *   - sqlShift: rekonsiliasi kas shift
  */
 laporanRoutes.get('/api/laporan/per-kasir', requireAuth, requireRole('super_admin', 'admin_toko'), async (c) => {
     const db = c.env.DB;
     const session = c.get('session');
     const { dari, sampai } = c.req.query();
-    let sqlOmzet = `
-    SELECT
-      u.id as kasir_id,
-      u.nama_lengkap,
-      u.username,
-      u.is_active,
-      COUNT(DISTINCT t.id) as jumlah_transaksi,
-      COALESCE(SUM(dt.subtotal), 0) as total_omzet,
-      COALESCE(SUM(dt.qty), 0) as total_item_terjual
-    FROM detail_transaksi dt
-    JOIN transaksi t ON t.id = dt.transaksi_id
-    JOIN users u ON u.id = t.kasir_id
-    WHERE t.status = 'selesai' AND dt.is_batal = 0`;
-    const paramsOmzet = [];
-    if (dari) {
-        sqlOmzet += ` AND ${wibDateExpr('t.created_at')} >= date(?)`;
-        paramsOmzet.push(dari);
-    }
-    if (sampai) {
-        sqlOmzet += ` AND ${wibDateExpr('t.created_at')} <= date(?)`;
-        paramsOmzet.push(sampai);
-    }
-    if (session.role !== 'super_admin') {
-        sqlOmzet += ' AND t.toko_id = ?';
-        paramsOmzet.push(session.toko_id);
-    }
-    sqlOmzet += ' GROUP BY u.id ORDER BY total_omzet DESC';
+    const dateFilter = [];
+    let dateWhere = '';
+    if (dari) { dateWhere += ` AND ${wibDateExpr('t.created_at')} >= date(?)`; dateFilter.push(dari); }
+    if (sampai) { dateWhere += ` AND ${wibDateExpr('t.created_at')} <= date(?)`; dateFilter.push(sampai); }
+    const tokoWhere = session.role !== 'super_admin' ? ' AND t.toko_id = ?' : '';
+    const tokoParam = session.role !== 'super_admin' ? [session.toko_id] : [];
+    // Query 1: omzet kas per kasir (level transaksi, setelah diskon, DP-corrected)
+    const sqlTrx = `
+    SELECT u.id as kasir_id, u.nama_lengkap, u.username, u.is_active,
+      COUNT(t.id) as jumlah_transaksi,
+      COALESCE(SUM(
+        CASE WHEN t.is_preorder = 1 AND t.status_bayar IN ('dp','belum_bayar') THEN t.jumlah_dp ELSE t.total_bayar END
+      ), 0) as total_omzet
+    FROM transaksi t JOIN users u ON u.id = t.kasir_id
+    WHERE t.status = 'selesai'${dateWhere}${tokoWhere}
+    GROUP BY u.id ORDER BY total_omzet DESC`;
+    // Query 2: qty item aktif per kasir (level detail, cancelled items excluded)
+    const sqlItem = `
+    SELECT t.kasir_id, COALESCE(SUM(dt.qty), 0) as total_item_terjual
+    FROM detail_transaksi dt JOIN transaksi t ON t.id = dt.transaksi_id
+    WHERE t.status = 'selesai' AND dt.is_batal = 0${dateWhere}${tokoWhere}
+    GROUP BY t.kasir_id`;
+    // Query 3: rekonsiliasi shift (tidak berubah)
+    const shiftTokoWhere = session.role !== 'super_admin' ? ' AND toko_id = ?' : '';
+    const shiftTokoParam = session.role !== 'super_admin' ? [session.toko_id] : [];
     let sqlShift = `
-    SELECT
-      kasir_id,
-      COUNT(*) as jumlah_shift,
+    SELECT kasir_id, COUNT(*) as jumlah_shift,
       COALESCE(SUM(selisih), 0) as total_selisih,
       COALESCE(SUM(CASE WHEN selisih < 0 THEN 1 ELSE 0 END), 0) as shift_kurang
-    FROM shift_kasir
-    WHERE status = 'tutup'`;
-    const paramsShift = [];
-    if (dari) {
-        sqlShift += ` AND ${wibDateExpr('waktu_tutup')} >= date(?)`;
-        paramsShift.push(dari);
-    }
-    if (sampai) {
-        sqlShift += ` AND ${wibDateExpr('waktu_tutup')} <= date(?)`;
-        paramsShift.push(sampai);
-    }
-    if (session.role !== 'super_admin') {
-        sqlShift += ' AND toko_id = ?';
-        paramsShift.push(session.toko_id);
-    }
+    FROM shift_kasir WHERE status = 'tutup'${shiftTokoWhere}`;
+    const paramsShift = [...shiftTokoParam];
+    if (dari) { sqlShift += ` AND ${wibDateExpr('waktu_tutup')} >= date(?)`; paramsShift.push(dari); }
+    if (sampai) { sqlShift += ` AND ${wibDateExpr('waktu_tutup')} <= date(?)`; paramsShift.push(sampai); }
     sqlShift += ' GROUP BY kasir_id';
-    const [omzetRes, shiftRes] = await Promise.all([
-        db.prepare(sqlOmzet).bind(...paramsOmzet).all(),
+    const paramsTrxItem = [...dateFilter, ...tokoParam];
+    const [trxRes, itemRes, shiftRes] = await Promise.all([
+        db.prepare(sqlTrx).bind(...paramsTrxItem).all(),
+        db.prepare(sqlItem).bind(...paramsTrxItem).all(),
         db.prepare(sqlShift).bind(...paramsShift).all(),
     ]);
+    const itemMap = new Map(itemRes.results.map((r) => [r.kasir_id, r.total_item_terjual]));
     const shiftMap = new Map(shiftRes.results.map((r) => [r.kasir_id, r]));
-    const data = omzetRes.results.map((r) => {
+    const data = trxRes.results.map((r) => {
         const shift = shiftMap.get(r.kasir_id);
         return {
             kasir_id: r.kasir_id,
@@ -319,7 +330,7 @@ laporanRoutes.get('/api/laporan/per-kasir', requireAuth, requireRole('super_admi
             is_active: r.is_active,
             jumlah_transaksi: r.jumlah_transaksi,
             total_omzet: r.total_omzet,
-            total_item_terjual: r.total_item_terjual,
+            total_item_terjual: itemMap.get(r.kasir_id) ?? 0,
             rata_rata_transaksi: r.jumlah_transaksi > 0 ? Math.round(r.total_omzet / r.jumlah_transaksi) : 0,
             jumlah_shift: shift?.jumlah_shift ?? 0,
             total_selisih_kas: shift?.total_selisih ?? 0,
