@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  /* pb-safe dipakai di beberapa tempat (tombol Bayar Sekarang, floating cart)
+     tapi sebelumnya tidak pernah didefinisikan sehingga tidak menghasilkan CSS
+     apa-apa. Ini menyebabkan tombol tidak terangkat oleh safe-area gesture bar
+     Android, jadi terlihat "kedorong" turun / kepotong navigasi sistem. */
+  .pb-safe {
+    padding-bottom: calc(1.25rem + var(--safe-bottom, env(safe-area-inset-bottom, 0px)));
+  }
+}

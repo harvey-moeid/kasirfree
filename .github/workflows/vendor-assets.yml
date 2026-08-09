@@ -1,0 +1,42 @@
+name: Vendor CDN Assets (self-host offline)
+
+# Workflow SEKALI-JALAN (dan tiap kali mau update versi library) — download
+# Font Awesome, Google Fonts, xlsx.js, Chart.js, qrcodejs dari CDN dan
+# commit hasilnya langsung ke repo (public/fonts/, public/js/vendor/).
+# Setelah ini, aplikasi tidak gantung CDN sama sekali saat runtime — bisa
+# dibuka 100% offline dari kali pertama install (termasuk di APK).
+#
+# Cara pakai: tab Actions → "Vendor CDN Assets (self-host offline)" →
+# tombol "Run workflow". Tunggu selesai, hasil unduhan otomatis ter-commit
+# ke branch yang dipilih.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  vendor-fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout kode
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Jalankan vendor-fetch
+        run: node scripts/vendor-fetch.mjs
+
+      - name: Commit & push hasil unduhan
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/fonts public/js/vendor public/vendor-manifest.json
+          if git diff --cached --quiet; then
+            echo "Tidak ada perubahan (asset sudah up to date)."
+          else
+            git commit -m "chore: vendor CDN assets locally (self-host, offline-ready)"
+            git push
+          fi

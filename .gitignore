@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Secret lokal (JANGAN pernah commit ini kalau nanti dibuat)
+.dev.vars
+
+# Cache/state wrangler
+.wrangler/
+
+# Proyek native Android (Capacitor) — dibuat fresh tiap build oleh GitHub
+# Actions (lihat .github/workflows/build-apk.yml), tidak perlu di-commit.
+# Kalau kamu sengaja mau custom native code Android manual, hapus baris ini.
+android/
+
+# OS / editor
+.DS_Store
+Thumbs.db

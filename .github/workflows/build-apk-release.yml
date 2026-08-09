@@ -1,0 +1,117 @@
+name: Build APK (Release, signed)
+
+# Build APK RELEASE bertanda tangan (bisa untuk upload ke Play Store).
+# Beda dari "Build APK (Capacitor)" yang debug/untuk-testing — workflow ini
+# BUTUH keystore signing yang sudah kamu siapkan sendiri sebagai GitHub
+# Secrets (lihat PANDUAN-APK.md bagian "Release APK bertanda tangan").
+# Tidak jalan otomatis (workflow_dispatch saja) — sengaja, supaya release
+# build cuma dibuat saat memang diniatkan, bukan tiap push biasa.
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Nomor versi ditampilkan ke user (mis. 1.0.0)"
+        required: true
+        default: "1.0.0"
+      version_code:
+        description: "Nomor build internal, HARUS naik tiap rilis (integer)"
+        required: true
+        default: "1"
+
+jobs:
+  build-release-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kode
+        uses: actions/checkout@v4
+
+      - name: Cek GitHub Secrets signing sudah lengkap
+        run: |
+          missing=0
+          for v in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Secret '$v' belum diset. Lihat PANDUAN-APK.md bagian 'Release APK bertanda tangan'."
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then exit 1; fi
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup Java (dibutuhkan Gradle/Android build)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install dependency npm
+        run: npm install
+
+      - name: Download & self-host asset CDN (font, xlsx, Chart.js, qrcode)
+        run: npm run vendor:fetch
+
+      - name: Build CSS (Tailwind)
+        run: npm run build:css
+
+      - name: Tambahkan platform Android (Capacitor)
+        run: npx cap add android
+
+      - name: Tambah izin Android yang dibutuhkan (kamera untuk scan barcode)
+        run: node scripts/patch-android-permissions.mjs
+
+      - name: Set versionName & versionCode
+        run: |
+          sed -i "s/versionName \"[^\"]*\"/versionName \"${{ inputs.version_name }}\"/" android/app/build.gradle
+          sed -i "s/versionCode [0-9]*/versionCode ${{ inputs.version_code }}/" android/app/build.gradle
+
+      - name: Generate ikon & splash screen dari assets/icon.png
+        run: npx @capacitor/assets generate --android --iconBackgroundColor '#050D1C' --splashBackgroundColor '#050D1C' || true
+
+      - name: Sync aset web ke proyek Android
+        run: npx cap sync android
+
+      - name: Decode keystore dari Secret ke file sementara
+        # File keystore cuma ada sebentar di runner CI (dihapus otomatis
+        # begitu job selesai/runner dibuang), TIDAK PERNAH di-commit atau
+        # muncul di log manapun.
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+
+      - name: Suntik konfigurasi signing ke build.gradle
+        run: node scripts/patch-android-signing.mjs
+        env:
+          KEYSTORE_PATH: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Beri izin eksekusi gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build APK Release (bertanda tangan)
+        working-directory: android
+        run: ./gradlew assembleRelease
+        env:
+          KEYSTORE_PATH: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Hapus file keystore sementara (jaga-jaga sebelum upload artifact)
+        if: always()
+        run: rm -f android/app/release.keystore
+
+      - name: Upload hasil APK sebagai artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: muidsoft-release-signed-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 90

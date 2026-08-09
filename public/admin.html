@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <!-- ===== Mode Full Lokal: database, gambar, dan API kasir semuanya
+         jalan di HP ini (tanpa server). Wajib dimuat paling awal. ===== -->
+    <script src="/js/vendor/sql-wasm.js"></script>
+    <script src="/js/idb-helper.js"></script>
+    <script src="/js/lib/base64.js"></script>
+    <script src="/js/lib/file-saver.js"></script>
+    <script src="/js/local-images.js"></script>
+    <script src="/js/local-db.js"></script>
+    <script src="/js/local-auth.js"></script>
+    <script src="/js/local-backup.js"></script>
+    <script src="/js/fetch-shim.js"></script>
+    <script type="module" src="/js/local-app.js"></script>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<title>Admin - muidsoft</title>
+
+<link rel="stylesheet" href="/styles.css">
+<link href="/fonts/fontawesome/css/all.min.css" rel="stylesheet">
+<link href="/fonts/google/fonts.css" rel="stylesheet">
+<script src="/js/vendor/xlsx.full.min.js"></script>
+<script src="/js/vendor/chart.umd.min.js"></script>
+
+<style>
+    :root {
+        --brand: #1c2f61;
+        --brand-dark: #16244d;
+        --gold: #c2932e;
+        --gold-light: #f0d99b;
+        --gold-dark: #a17423;
+        --surface: #ffffff;
+        --surface-muted: #f8fafc;
+        --border: #eef1f6;
+        --ring: 0 1px 2px rgba(6,11,26,.05), 0 10px 26px -14px rgba(6,11,26,.14);
+        --ring-gold: 0 10px 24px -8px rgba(162,116,35,.5), 0 2px 6px rgba(214,172,66,.2);
+    }
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background: linear-gradient(180deg,#f6f8fc 0%,#eef1f7 100%); -webkit-tap-highlight-color: transparent; }
+    h1, h2, h3, .font-display { font-family: 'Sora', 'Plus Jakarta Sans', sans-serif; }
+    .btn-gold {
+        background: linear-gradient(160deg, var(--gold-light) 0%, var(--gold) 35%, var(--gold-dark) 100%);
+        color: #16244d; box-shadow: var(--ring-gold);
+        position: relative; overflow: hidden;
+    }
+    .btn-gold::before {
+        content: ''; position: absolute; inset: 0 0 auto 0; height: 45%;
+        background: linear-gradient(to bottom, rgba(255,255,255,.32), transparent);
+    }
+    .header-navy { background: linear-gradient(135deg, #16244d 0%, #1c2f61 55%, #223a78 100%); }
+    .logo-ring { box-shadow: 0 0 0 1.5px rgba(214,172,66,.5), 0 0 14px 1px rgba(214,172,66,.2); }
+    .font-mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+    .tab-btn.active { background: #fff; color: var(--brand-dark); box-shadow: 0 6px 16px -4px rgba(6,11,26,.3); }
+    .tab-btn { color: rgba(255,255,255,.85); transition: all .18s ease; }
+    .tab-btn:not(.active):hover { background: rgba(255,255,255,.16); }
+    .hide-scroll::-webkit-scrollbar { display: none; }
+    .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+    table th { position: sticky; top: 0; background: #f8fafc; z-index: 1; }
+    @keyframes fadeIn { 0% { opacity:0; transform: translateY(6px);} 100% { opacity:1; transform: translateY(0);} }
+    .animate-in { animation: fadeIn .25s cubic-bezier(.16,1,.3,1); }
+
+    /* Kartu & panel gaya "pro": border tipis + shadow lembut navy-tint berlapis, bukan shadow tunggal keras */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 1.1rem; box-shadow: var(--ring); }
+    .kpi-card { position: relative; overflow: hidden; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .kpi-card::after { content: ""; position: absolute; inset: 0; opacity: .06; background: radial-gradient(120px 80px at 90% -10%, var(--dot,#2563eb), transparent); }
+    @media (hover: hover) {
+        .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 18px 34px -16px rgba(6,11,26,.22); }
+    }
+    .badge { display:inline-flex; align-items:center; gap:.3rem; font-weight:700; border-radius:999px; padding:.2rem .6rem; font-size:10px; }
+    .period-btn { transition: all .15s ease; }
+    .period-btn.active { background: var(--brand); color: #fff; box-shadow: 0 4px 10px -2px rgba(37,99,235,.4); }
+    .skeleton { background: linear-gradient(90deg,#eef1f6 25%,#f7f9fc 37%,#eef1f6 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; border-radius: .5rem; }
+    @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+    .aksi-tag { font-size: 10px; font-weight: 800; letter-spacing: .02em; padding: .2rem .55rem; border-radius: 999px; text-transform: uppercase; }
+
+    /* ============================================================
+       TABEL -> KARTU DI MOBILE (prioritas mobile)
+       Sebelumnya semua tabel (produk/kasir/toko/log) cuma dibungkus
+       overflow-x-auto — di HP jadi kecil & harus digeser horizontal,
+       kolom "Aksi" ikut nyempit dan tombolnya susah dipencet.
+       Solusi: di layar <640px, header tabel disembunyikan, tiap <tr>
+       jadi kartu block, dan tiap <td> jadi baris "label: nilai" pakai
+       atribut data-label (diisi lewat JS saat render). Di layar >=640px
+       tampilannya balik jadi tabel normal seperti biasa.
+       Beri class "rtable" pada <table> yang ingin dapat perlakuan ini.
+       ============================================================ */
+    @media (max-width: 639px) {
+        .rtable thead { display: none; }
+        .rtable, .rtable tbody, .rtable tr, .rtable td { display: block; width: 100%; }
+        .rtable tr {
+            border-top: none !important;
+            border: 1px solid var(--border);
+            border-radius: .9rem;
+            margin: .6rem;
+            padding: .35rem .25rem;
+            background: #fff;
+        }
+        .rtable tr:hover { background: #fff; }
+        .rtable td {
+            display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+            text-align: right !important;
+            padding: .5rem .85rem !important;
+            border-top: 1px dashed var(--border);
+        }
+        .rtable td:first-child { border-top: none; }
+        .rtable td[data-label]::before {
+            content: attr(data-label);
+            font-size: 10px; font-weight: 800; letter-spacing: .02em; text-transform: uppercase;
+            color: #94a3b8; text-align: left; flex-shrink: 0;
+        }
+        .rtable td:not([data-label])::before { content: none; }
+        /* Sel tanpa label eksplisit (kosong/loading/no-data) tampil biasa, rata tengah */
+        .rtable td:not([data-label]) { justify-content: center; text-align: center !important; }
+        .rtable .rtable-actions { justify-content: flex-end !important; }
+    }
+</style>
+</head>
+<body class="min-h-screen text-slate-800">
+
+<!-- ===================== HEADER ===================== -->
+<header class="header-navy text-white sticky top-0 z-30 shadow-lg">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="logo-ring w-10 h-10 rounded-2xl overflow-hidden">
+                <img src="/brand/muidsoft-appicon.png" alt="muidsoft" class="w-full h-full object-cover">
+            </div>
+            <div>
+                <h1 id="app-title-header" class="font-extrabold text-base leading-tight tracking-tight font-display">MUIDSOFT</h1>
+                <p class="text-[11px] text-blue-100 font-semibold flex items-center gap-1"><i class="fas fa-shield-halved text-[9px]"></i>Panel Admin</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="text-right hidden sm:block">
+                <p id="admin-nama" class="font-bold text-sm leading-tight">-</p>
+                <p id="admin-role" class="text-[10px] text-blue-100 font-semibold">-</p>
+            </div>
+            <a href="index.html" title="Ke halaman kasir" class="w-9 h-9 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition"><i class="fas fa-cash-register text-sm"></i></a>
+            <button onclick="openChangePasswordModal()" title="Ganti Password" class="w-9 h-9 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition"><i class="fas fa-key text-sm"></i></button>
+            <button onclick="doLogout()" title="Keluar" class="w-9 h-9 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition"><i class="fas fa-sign-out-alt text-sm"></i></button>
+        </div>
+    </div>
+    <div class="max-w-6xl mx-auto px-4 pb-3 flex gap-2 overflow-x-auto hide-scroll">
+        <button class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition" data-tab="dashboard" onclick="switchTab('dashboard')"><i class="fas fa-chart-line mr-1.5"></i>Dashboard</button>
+        <button class="tab-btn bg-white/10 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition" data-tab="produk" onclick="switchTab('produk')"><i class="fas fa-box mr-1.5"></i>Kelola Produk</button>
+        <button class="tab-btn bg-white/10 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition" data-tab="bahan" onclick="switchTab('bahan')"><i class="fas fa-carrot mr-1.5"></i>Bahan Baku</button>
+        <button class="tab-btn bg-white/10 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition" data-tab="riwayat" onclick="switchTab('riwayat')"><i class="fas fa-receipt mr-1.5"></i>Riwayat Transaksi</button>
+        <button class="tab-btn bg-white/10 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition" data-tab="preorder" onclick="switchTab('preorder')"><i class="fas fa-calendar-check mr-1.5"></i>Pesanan Mendatang</button>
+        <button id="tab-btn-toko" class="tab-btn bg-white/10 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition hidden" data-tab="toko" onclick="switchTab('toko')"><i class="fas fa-gear mr-1.5"></i>Pengaturan</button>
+        <button class="tab-btn bg-white/10 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition" data-tab="log" onclick="switchTab('log')"><i class="fas fa-clock-rotate-left mr-1.5"></i>Log Aktivitas</button>
+    </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 py-6">
+
+    <!-- ===================== TAB: DASHBOARD ===================== -->
+    <section id="tab-dashboard" class="animate-in">
+        <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800">Dashboard Laporan</h2>
+                <p class="text-xs text-slate-500 font-medium">Ringkasan penjualan</p>
+            </div>
+            <div class="flex flex-wrap items-end gap-2">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Dari</label>
+                    <input type="date" id="rep-dari" class="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Sampai</label>
+                    <input type="date" id="rep-sampai" class="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold">
+                </div>
+                <button onclick="loadDashboard()" class="bg-slate-800 text-white px-4 py-1.5 rounded-lg text-xs font-bold active:scale-95 transition h-fit"><i class="fas fa-rotate mr-1"></i>Muat Ulang</button>
+                <button onclick="exportLaporanExcel()" class="bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold active:scale-95 transition h-fit shadow-md shadow-emerald-200"><i class="fas fa-file-excel mr-1.5"></i>Export Excel</button>
+            </div>
+        </div>
+
+        <!-- Kartu Ringkasan -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+            <div class="card kpi-card p-4" style="--dot:#2563eb">
+                <div class="flex items-start justify-between">
+                    <p class="text-[11px] font-bold text-slate-400 uppercase mb-1">Total Penjualan Hari Ini</p>
+                    <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><i class="fas fa-sack-dollar text-xs"></i></div>
+                </div>
+                <p id="kpi-total" class="text-lg sm:text-2xl font-extrabold text-slate-800 font-mono truncate">Rp 0</p>
+            </div>
+            <div class="card kpi-card p-4" style="--dot:#f97316">
+                <div class="flex items-start justify-between">
+                    <p class="text-[11px] font-bold text-slate-400 uppercase mb-1">Transaksi Hari Ini</p>
+                    <div class="w-8 h-8 rounded-xl bg-orange-50 text-orange-500 flex items-center justify-center shrink-0"><i class="fas fa-receipt text-xs"></i></div>
+                </div>
+                <p id="kpi-jumlah" class="text-2xl font-extrabold text-slate-800 font-mono">0</p>
+            </div>
+            <div class="card kpi-card p-4 col-span-2 sm:col-span-1" style="--dot:#059669">
+                <div class="flex items-start justify-between">
+                    <p class="text-[11px] font-bold text-slate-400 uppercase mb-1">Margin Kotor <span class="normal-case font-medium">(rentang filter)</span></p>
+                    <div class="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0"><i class="fas fa-chart-pie text-xs"></i></div>
+                </div>
+                <p id="kpi-margin" class="text-lg sm:text-2xl font-extrabold text-slate-800 font-mono truncate">Rp 0</p>
+                <p id="kpi-margin-persen" class="text-[10px] text-emerald-600 font-bold mt-0.5">0% dari omzet</p>
+                <p id="kpi-margin-warning" class="text-[10px] text-amber-600 font-medium mt-1 hidden"><i class="fas fa-triangle-exclamation mr-1"></i><span id="kpi-margin-warning-text"></span></p>
+            </div>
+        </div>
+
+        <!-- Grafik Tren Penjualan -->
+        <div class="card overflow-hidden mb-5">
+            <div class="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                <h3 class="font-bold text-sm"><i class="fas fa-chart-area text-blue-500 mr-1.5"></i>Tren Penjualan</h3>
+                <div id="tren-period-group" class="flex gap-1 bg-slate-100 p-1 rounded-lg">
+                    <button class="period-btn active px-3 py-1 rounded-md text-[11px] font-bold" data-hari="7" onclick="setTrenPeriod(7)">7 Hari</button>
+                    <button class="period-btn px-3 py-1 rounded-md text-[11px] font-bold text-slate-500" data-hari="30" onclick="setTrenPeriod(30)">30 Hari</button>
+                    <button class="period-btn px-3 py-1 rounded-md text-[11px] font-bold text-slate-500" data-hari="90" onclick="setTrenPeriod(90)">90 Hari</button>
+                </div>
+            </div>
+            <div class="p-4">
+                <div id="tren-skeleton" class="skeleton h-56 w-full"></div>
+                <canvas id="chart-tren" height="90" class="hidden"></canvas>
+            </div>
+        </div>
+
+        <!-- Grafik Jam Ramai -->
+        <div class="card overflow-hidden mb-5">
+            <div class="px-4 py-3 border-b border-slate-100">
+                <h3 class="font-bold text-sm"><i class="fas fa-clock text-purple-500 mr-1.5"></i>Jam Ramai</h3>
+                <p class="text-[10px] text-slate-400 font-medium">jumlah transaksi per jam (WIB), sesuai filter tanggal di atas</p>
+            </div>
+            <div class="p-4">
+                <canvas id="chart-jam-ramai" height="80"></canvas>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-5">
+            <!-- Produk Terlaris -->
+            <div class="card overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                    <h3 class="font-bold text-sm"><i class="fas fa-fire text-orange-500 mr-1.5"></i>Produk Terlaris</h3>
+                    <span class="text-[10px] text-slate-400 font-bold">berdasarkan qty terjual</span>
+                </div>
+                <div class="overflow-x-auto hide-scroll max-h-80 overflow-y-auto">
+                    <table class="w-full text-xs">
+                        <thead><tr class="text-slate-400 font-bold uppercase text-[10px]">
+                            <th class="text-left px-4 py-2">Produk</th><th class="text-right px-4 py-2">Qty</th><th class="text-right px-4 py-2">Omzet</th>
+                        </tr></thead>
+                        <tbody id="tbl-terlaris"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Kinerja per Kasir/Staff -->
+            <div class="card overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                    <h3 class="font-bold text-sm"><i class="fas fa-user-tie text-indigo-500 mr-1.5"></i>Kinerja Kasir</h3>
+                    <span class="text-[10px] text-slate-400 font-bold">berdasarkan omzet, sesuai filter tanggal di atas</span>
+                </div>
+                <div class="overflow-x-auto hide-scroll max-h-80 overflow-y-auto">
+                    <table class="w-full text-xs">
+                        <thead><tr class="text-slate-400 font-bold uppercase text-[10px]">
+                            <th class="text-left px-4 py-2">Kasir</th><th class="text-right px-4 py-2">Transaksi</th><th class="text-right px-4 py-2">Omzet</th><th class="text-right px-4 py-2">Rata-rata</th><th class="text-right px-4 py-2">Selisih Kas</th>
+                        </tr></thead>
+                        <tbody id="tbl-kinerja-kasir"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================== TAB: PENGATURAN ===================== -->
+    <section id="tab-toko" class="hidden animate-in">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800">Pengaturan</h2>
+                <p class="text-xs text-slate-500 font-medium">Semua data aplikasi ini tersimpan lokal di HP ini saja</p>
+            </div>
+        </div>
+
+        <div class="card p-5 border-2 border-blue-100">
+            <h2 class="text-lg font-extrabold text-slate-800"><i class="fas fa-mobile-screen-button text-blue-500 mr-1.5"></i>Backup &amp; Pindah HP</h2>
+            <p class="text-xs text-slate-500 font-medium mb-4">Database &amp; foto produk hanya tersimpan di HP ini. Kalau HP hilang/ganti/cache browser dihapus, data ikut hilang — unduh cadangan secara rutin, atau sebelum pindah ke HP baru.</p>
+            <div class="flex flex-col sm:flex-row gap-2">
+                <button onclick="unduhBackup()" id="btn-backup" class="btn-gold px-5 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition whitespace-nowrap"><i class="fas fa-download mr-1.5"></i>Unduh Cadangan</button>
+                <label class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold active:scale-95 transition whitespace-nowrap cursor-pointer text-center">
+                    <i class="fas fa-upload mr-1.5"></i>Pulihkan dari File
+                    <input type="file" id="input-restore-backup" accept="application/json" class="hidden" onchange="pulihkanBackup(event)">
+                </label>
+            </div>
+            <p class="text-[10px] text-slate-400 mt-3">Memulihkan cadangan akan MENIMPA seluruh data yang ada di HP ini saat ini.</p>
+        </div>
+
+        <div class="card p-5 mt-6">
+            <h2 class="text-lg font-extrabold text-slate-800">Pengaturan Aplikasi</h2>
+            <p class="text-xs text-slate-500 font-medium mb-4">Judul aplikasi yang tampil di halaman login, header, dan tab browser</p>
+            <form id="form-app-title" class="flex flex-col sm:flex-row gap-3" onsubmit="submitAppTitle(event)">
+                <input type="text" id="app-title-input" required maxlength="60" class="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold" placeholder="mis. Toko Berkah Jaya">
+                <button type="submit" class="btn-gold px-5 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition whitespace-nowrap">Simpan Judul</button>
+            </form>
+        </div>
+
+        <div class="card p-5 mt-6">
+            <h2 class="text-lg font-extrabold text-slate-800"><i class="fas fa-receipt text-blue-500 mr-1.5"></i>Kustomisasi Struk</h2>
+            <p class="text-xs text-slate-500 font-medium mb-4">Ubah tampilan struk yang dicetak di kasir — berlaku untuk semua toko</p>
+            <form id="form-struk" class="space-y-4" onsubmit="submitStrukSettings(event)">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Lebar Kertas Printer</label>
+                        <select id="struk-lebar-input" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                            <option value="58">58mm (umum)</option>
+                            <option value="80">80mm</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end pb-1">
+                        <label class="flex items-center gap-2 text-sm font-bold text-slate-700">
+                            <input type="checkbox" id="struk-alamat-input" class="w-4 h-4 rounded"> Tampilkan alamat toko di struk
+                        </label>
+                    </div>
+                    <div class="flex items-end pb-1">
+                        <label class="flex items-center gap-2 text-sm font-bold text-slate-700">
+                            <input type="checkbox" id="struk-antrian-input" class="w-4 h-4 rounded"> Cetak nomor antrian di struk
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pesan Footer (mis. ucapan terima kasih)</label>
+                    <input type="text" id="struk-footer-input" maxlength="120" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold" placeholder="Terima kasih atas kunjungan Anda">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Catatan Tambahan (mis. syarat retur, no. WA)</label>
+                    <input type="text" id="struk-catatan-input" maxlength="200" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold" placeholder="Pesan diambil sesuai jadwal, mohon konfirmasi kalau terlambat">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ikon di Bagian Bawah Struk</label>
+                    <select id="struk-ikon-input" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold" onchange="toggleStrukQrField()">
+                        <option value="tidak">Tidak ada</option>
+                        <option value="qr">QR Code asli (bisa di-scan)</option>
+                        <option value="judul">Nama Toko/Aplikasi (teks besar)</option>
+                    </select>
+                </div>
+                <div id="struk-qr-field" style="display:none">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Data QR Code (link WhatsApp / Instagram / Website Toko)</label>
+                    <input type="text" id="struk-qr-input" maxlength="300" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold" placeholder="https://wa.me/6281234567890">
+                    <p class="text-[10px] text-slate-400 mt-1">QR digenerate langsung di browser kasir saat cetak — tidak dikirim ke pihak ketiga mana pun.</p>
+                </div>
+                <button type="submit" class="btn-gold px-5 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition whitespace-nowrap">Simpan Kustomisasi Struk</button>
+            </form>
+        </div>
+
+        <div id="card-kelola-data" class="card p-5 mt-6 border-2 border-red-100 hidden">
+            <h2 class="text-lg font-extrabold text-red-600"><i class="fas fa-trash-alt mr-1.5"></i>Kelola Data</h2>
+            <p class="text-xs text-slate-500 font-medium mb-4">Operasi ini menghapus data secara permanen dan tidak bisa dibatalkan.</p>
+
+            <div class="bg-slate-50 rounded-xl p-4 mb-4">
+                <h3 class="font-bold text-sm text-slate-800 mb-1">Bersihkan Data Contoh (Bahan Baku &amp; Resep)</h3>
+                <p class="text-xs text-slate-500 mb-3">Menghapus semua bahan baku &amp; resep yang ada sekarang (termasuk contoh starter). Tidak menyentuh transaksi atau menu.</p>
+                <button onclick="hapusSemuaBahanBaku()" class="px-4 py-2 bg-white border border-red-200 text-red-600 rounded-xl text-xs font-bold active:scale-95 transition">Hapus Semua Bahan Baku &amp; Resep</button>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-4">
+                <h3 class="font-bold text-sm text-slate-800 mb-1">Hapus Transaksi</h3>
+                <p class="text-xs text-slate-500 mb-3">Berguna untuk membuang transaksi testing sebelum mulai jualan beneran, atau reset total penjualan.</p>
+                <div class="grid grid-cols-2 gap-2 mb-3">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Dari Tanggal</label>
+                        <input type="date" id="hapus-trx-dari" class="w-full border border-slate-200 rounded-lg px-2 py-2 text-xs font-bold">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Sampai Tanggal</label>
+                        <input type="date" id="hapus-trx-sampai" class="w-full border border-slate-200 rounded-lg px-2 py-2 text-xs font-bold">
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-400 mb-3">Kosongkan kedua tanggal untuk menghapus <b>SEMUA</b> transaksi (reset total penjualan).</p>
+                <button onclick="hapusTransaksiMassal()" class="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold active:scale-95 transition shadow-md shadow-red-200">Hapus Transaksi</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================== TAB: LOG AKTIVITAS ===================== -->
+    <section id="tab-log" class="hidden animate-in">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800">Log Aktivitas</h2>
+                <p class="text-xs text-slate-500 font-medium">Audit trail — siapa mengubah apa &amp; kapan</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <select id="log-entitas" onchange="loadLogAktivitas()" class="border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold bg-white">
+                    <option value="">Semua Entitas</option>
+                    <option value="produk">Produk</option>
+                    <option value="user">User</option>
+                    <option value="toko">Toko</option>
+                    <option value="pengaturan">Pengaturan</option>
+                    <option value="kategori">Kategori</option>
+                    <option value="transaksi">Transaksi</option>
+                </select>
+                <button onclick="loadLogAktivitas()" class="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition"><i class="fas fa-rotate mr-1"></i>Muat Ulang</button>
+            </div>
+        </div>
+
+        <div class="card overflow-hidden">
+            <div class="overflow-x-auto hide-scroll">
+                <table class="rtable w-full text-xs">
+                    <thead><tr class="text-slate-400 font-bold uppercase text-[10px] bg-slate-50">
+                        <th class="text-left px-4 py-3">Waktu</th>
+                        <th class="text-left px-4 py-3">Pelaku</th>
+                        <th class="text-left px-4 py-3">Aksi</th>
+                        <th class="text-left px-4 py-3">Keterangan</th>
+                    </tr></thead>
+                    <tbody id="tbl-log"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================== TAB: PRODUK ===================== -->
+    <section id="tab-produk" class="hidden animate-in">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800">Kelola Produk</h2>
+                <p class="text-xs text-slate-500 font-medium">Tambah, ubah, nonaktifkan produk</p>
+            </div>
+            <div class="flex gap-2 w-full sm:w-auto">
+                <input type="text" id="produk-search" placeholder="Cari nama/kode..." class="border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold flex-1 sm:flex-none sm:w-48" oninput="renderProdukTable()">
+                <button onclick="openProdukModal()" class="shrink-0 bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition shadow-md shadow-blue-200"><i class="fas fa-plus mr-1.5"></i><span class="hidden sm:inline">Tambah Produk</span><span class="sm:hidden">Tambah</span></button>
+            </div>
+        </div>
+
+        <div class="card overflow-hidden">
+            <div class="overflow-x-auto hide-scroll">
+                <table class="rtable w-full text-xs">
+                    <thead><tr class="text-slate-400 font-bold uppercase text-[10px] bg-slate-50">
+                        <th class="text-left px-4 py-3">Kode</th>
+                        <th class="text-left px-4 py-3">Nama</th>
+                        <th class="text-left px-4 py-3">Kategori</th>
+                        <th class="text-right px-4 py-3">Harga</th>
+                        <th class="text-center px-4 py-3">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbl-produk"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- ===================== MODAL: PELUNASAN PREORDER ===================== -->
+    <div id="modal-pelunasan" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl max-h-[90vh] flex flex-col">
+            <div class="p-5 border-b border-slate-100 shrink-0 flex items-start justify-between">
+                <div>
+                    <h3 class="font-extrabold text-lg">Terima Pelunasan</h3>
+                    <p class="text-xs text-slate-400 font-medium">Sisa tagihan: <span id="pelunasan-batas" class="font-bold text-blue-600">Rp0</span></p>
+                </div>
+                <button onclick="closeModal('modal-pelunasan')" class="w-8 h-8 bg-slate-100 rounded-full active:bg-slate-200 flex items-center justify-center text-slate-600 transition"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="pelunasan-rows" class="p-5 space-y-3 overflow-y-auto hide-scroll flex-1 min-h-0"></div>
+            <div class="p-5 border-t border-slate-100 shrink-0 space-y-3">
+                <button onclick="addPelunasanRow()" class="w-full py-2.5 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 font-bold text-xs active:bg-slate-50 transition">
+                    <i class="fas fa-plus mr-1"></i> Tambah Metode Bayar
+                </button>
+                <div class="bg-slate-50 rounded-xl p-3 text-xs font-bold space-y-1">
+                    <div class="flex justify-between text-slate-500"><span>Total Diterima</span><span id="pelunasan-total">Rp0</span></div>
+                    <div class="flex justify-between"><span id="pelunasan-sisa-label" class="text-slate-500">Sisa setelah ini</span><span id="pelunasan-sisa" class="text-slate-700">Rp0</span></div>
+                </div>
+                <button onclick="confirmPelunasan()" id="btn-confirm-pelunasan" class="w-full bg-amber-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-amber-200 active:scale-[0.98] transition disabled:opacity-50" disabled>Konfirmasi</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== MODAL: BATALKAN ITEM ===================== -->
+    <div id="modal-batal-item" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto hide-scroll">
+            <div class="p-5 border-b border-slate-100 sticky top-0 bg-white">
+                <h3 class="font-extrabold text-lg">Batalkan Item</h3>
+                <p class="text-xs text-slate-400 font-medium" id="batal-item-kode"></p>
+            </div>
+            <div class="p-5">
+                <p class="text-xs text-slate-500 mb-3">Centang item yang mau dibatalkan. Biarkan semua tercentang kalau mau batalkan seluruh transaksi.</p>
+                <div id="batal-item-list" class="space-y-2 mb-4"></div>
+                <div class="mb-4">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Alasan <span class="text-slate-300 font-medium">(opsional)</span></label>
+                    <input type="text" id="batal-item-alasan" maxlength="200" placeholder="mis. pembeli batal, salah pesan" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeModal('modal-batal-item')" class="flex-1 py-3 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm active:scale-95 transition">Batal</button>
+                    <button onclick="submitBatalItem()" class="flex-1 py-3 bg-red-600 text-white rounded-2xl font-bold text-sm active:scale-95 transition shadow-lg shadow-red-200">Batalkan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ===================== TAB: BAHAN BAKU ===================== -->
+    <section id="tab-bahan" class="hidden animate-in">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800">Bahan Baku</h2>
+                <p class="text-xs text-slate-500 font-medium">Harga bahan mentah — dipakai hitung HPP &amp; margin</p>
+            </div>
+            <button onclick="openBahanModal()" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition shadow-md shadow-blue-200"><i class="fas fa-plus mr-1.5"></i>Tambah Bahan Baku</button>
+        </div>
+        <div class="card overflow-hidden">
+            <div class="overflow-x-auto hide-scroll">
+                <table class="rtable w-full text-xs">
+                    <thead><tr class="text-slate-400 font-bold uppercase text-[10px] bg-slate-50">
+                        <th class="text-left px-4 py-3">Nama</th>
+                        <th class="text-left px-4 py-3">Satuan</th>
+                        <th class="text-right px-4 py-3">Harga / Satuan</th>
+                        <th class="text-center px-4 py-3">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbl-bahan"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================== MODAL: BAHAN BAKU ===================== -->
+    <div id="modal-bahan" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl">
+            <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+                <h3 id="bahan-modal-title" class="font-extrabold text-lg">Tambah Bahan Baku</h3>
+                <button onclick="closeModal('modal-bahan')" class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center active:bg-slate-200"><i class="fas fa-times text-slate-600"></i></button>
+            </div>
+            <form id="form-bahan" class="p-5 space-y-4" onsubmit="submitBahan(event)">
+                <input type="hidden" id="bahan-id">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Nama Bahan</label>
+                    <input type="text" id="bahan-nama" required maxlength="60" placeholder="mis. Tepung Terigu" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Satuan</label>
+                        <input type="text" id="bahan-satuan" required maxlength="20" placeholder="gram/ml/butir" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Harga / Satuan</label>
+                        <input type="number" id="bahan-harga" required min="0" max="10000000" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl active:scale-95 transition shadow-lg shadow-blue-200">Simpan</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===================== TAB: RIWAYAT TRANSAKSI ===================== -->
+    <section id="tab-riwayat" class="hidden animate-in">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800">Riwayat Transaksi</h2>
+                <p class="text-xs text-slate-500 font-medium">Semua transaksi (pakai filter tanggal di tab Dashboard)</p>
+            </div>
+            <button onclick="loadRiwayatTransaksi()" class="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition"><i class="fas fa-rotate mr-1.5"></i>Muat Ulang</button>
+        </div>
+
+        <div class="card overflow-hidden">
+            <div class="overflow-x-auto hide-scroll">
+                <table class="rtable w-full text-xs">
+                    <thead><tr class="text-slate-400 font-bold uppercase text-[10px] bg-slate-50">
+                        <th class="text-left px-4 py-3">Kode</th>
+                        <th class="text-left px-4 py-3">Waktu</th>
+                        <th class="text-left px-4 py-3">Kasir</th>
+                        <th class="text-right px-4 py-3">Total</th>
+                        <th class="text-left px-4 py-3">Metode</th>
+                        <th class="text-center px-4 py-3">Status</th>
+                        <th class="text-center px-4 py-3">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbl-riwayat"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================== TAB: PESANAN MENDATANG (PREORDER) ===================== -->
+    <section id="tab-preorder" class="hidden animate-in">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800">Pesanan Mendatang</h2>
+                <p class="text-xs text-slate-500 font-medium">Preorder yang belum diambil pelanggan</p>
+            </div>
+            <select id="preorder-filter-status" onchange="loadPreorderTable()" class="border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold">
+                <option value="menunggu">Menunggu</option>
+                <option value="selesai">Selesai</option>
+                <option value="dibatalkan">Dibatalkan</option>
+                <option value="">Semua</option>
+            </select>
+        </div>
+
+        <div class="card p-4 mb-5">
+            <button onclick="toggleRiwayatPelunasan()" class="w-full flex items-center justify-between">
+                <span class="text-sm font-extrabold text-slate-700"><i class="fas fa-chart-line mr-2 text-emerald-600"></i>Riwayat Pelunasan (uang piutang yang tertagih)</span>
+                <i class="fas fa-chevron-down text-slate-400 text-xs"></i>
+            </button>
+            <div id="riwayat-pelunasan-wrap" class="hidden mt-4">
+                <div class="flex items-center gap-2 mb-3">
+                    <input type="date" id="riwayat-pelunasan-dari" class="border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold flex-1">
+                    <span class="text-slate-400 text-xs">—</span>
+                    <input type="date" id="riwayat-pelunasan-sampai" class="border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold flex-1">
+                    <button onclick="loadRiwayatPelunasan()" class="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold active:scale-95 transition shrink-0">Cari</button>
+                </div>
+                <div class="flex items-center justify-between mb-2 pb-2 border-b border-slate-100">
+                    <span class="text-xs font-bold text-slate-500">Total tertagih di rentang ini</span>
+                    <span id="riwayat-pelunasan-total" class="text-sm font-extrabold text-emerald-600">Rp0</span>
+                </div>
+                <div id="riwayat-pelunasan-list"></div>
+            </div>
+        </div>
+
+        <div id="preorder-list" class="space-y-3"></div>
+    </section>
+
+    <!-- ===================== TAB: KASIR / USERS ===================== -->
+    <section id="tab-kasir" class="hidden animate-in">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-800">Kelola Kasir</h2>
+                <p class="text-xs text-slate-500 font-medium">Akun kasir &amp; admin yang bisa login</p>
+            </div>
+            <button onclick="openUserModal()" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold active:scale-95 transition shadow-md shadow-blue-200"><i class="fas fa-user-plus mr-1.5"></i>Tambah User</button>
+        </div>
+
+        <div class="card overflow-hidden">
+            <div class="overflow-x-auto hide-scroll">
+                <table class="rtable w-full text-xs">
+                    <thead><tr class="text-slate-400 font-bold uppercase text-[10px] bg-slate-50">
+                        <th class="text-left px-4 py-3">Username</th>
+                        <th class="text-left px-4 py-3">Nama</th>
+                        <th class="text-left px-4 py-3">Role</th>
+                        <th class="text-center px-4 py-3">Status</th>
+                        <th class="text-center px-4 py-3">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbl-users"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</main>
+
+<!-- ===================== MODAL: PRODUK ===================== -->
+<div id="modal-produk" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto hide-scroll">
+        <div class="p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white">
+            <h3 id="produk-modal-title" class="font-extrabold text-lg">Tambah Produk</h3>
+            <button onclick="closeModal('modal-produk')" class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center active:bg-slate-200"><i class="fas fa-times text-slate-600"></i></button>
+        </div>
+        <form id="form-produk" class="p-5 space-y-4" onsubmit="submitProduk(event)">
+            <input type="hidden" id="produk-id">
+            <div id="produk-toko-wrap" class="hidden">
+                <label class="block text-xs font-bold text-slate-500 mb-1">Toko</label>
+                <select id="produk-toko" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold"></select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Kode Produk / Barcode</label>
+                <div class="flex gap-2">
+                    <input type="text" id="produk-kode" required class="flex-1 min-w-0 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                    <button type="button" onclick="openScanModal()" title="Scan barcode dengan kamera" class="shrink-0 w-11 border border-slate-200 rounded-xl text-blue-600 active:scale-95 transition flex items-center justify-center text-base">
+                        <i class="fas fa-barcode"></i>
+                    </button>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Nama Produk</label>
+                <input type="text" id="produk-nama" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Kategori</label>
+                <div class="flex gap-2">
+                    <select id="produk-kategori" class="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold"></select>
+                    <button type="button" onclick="tambahKategoriBaru()" class="px-3 bg-slate-100 rounded-xl text-slate-600 active:bg-slate-200 transition"><i class="fas fa-plus"></i></button>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Harga Beli</label>
+                    <input type="number" id="produk-harga-beli" min="0" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                </div>
+                <div id="produk-harga-jual-wrap">
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Harga Jual</label>
+                    <input type="number" id="produk-harga-jual" required min="0" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Satuan</label>
+                <input type="text" id="produk-satuan" value="pcs" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Foto Produk (opsional)</label>
+                <div class="flex items-center gap-3">
+                    <img id="produk-gambar-preview" src="" class="w-14 h-14 rounded-xl object-cover bg-slate-100 border border-slate-200 shrink-0 hidden">
+                    <div class="flex-1 space-y-2">
+                        <div class="flex gap-2">
+                            <button type="button" onclick="document.getElementById('produk-gambar-file').click()" class="flex-1 border border-dashed border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 transition flex items-center justify-center gap-2">
+                                <i class="fas fa-camera"></i> <span id="produk-upload-label">Upload dari perangkat</span>
+                            </button>
+                            <input type="file" id="produk-gambar-file" accept="image/jpeg,image/png,image/webp" class="hidden" onchange="handleProdukGambarFile(event)">
+                        </div>
+                        <!-- FIX: sebelumnya type="url". Setelah upload dari perangkat, field ini
+                             diisi JS dengan path RELATIF (mis. "/api/gambar/produk/xxx.jpg"), bukan
+                             URL absolut. Validasi bawaan browser untuk type="url" menolak path
+                             relatif → tombol "Simpan" gagal submit TANPA pesan error yang jelas
+                             (cuma tooltip "Please enter a URL"), jadi foto ke-upload tapi produk
+                             gagal tersimpan. type="text" tetap terima URL eksternal maupun path
+                             relatif dari R2, dan validasi format tetap dilakukan di submitProduk(). -->
+                        <input type="text" inputmode="url" id="produk-gambar" placeholder="atau tempel URL gambar https://..." class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold" oninput="previewProdukGambar()">
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-400 font-medium mt-1">JPG/PNG/WEBP, maks 2MB (otomatis dikompres di perangkat sebelum upload). Kosongkan jika tidak ada — kasir akan tampilkan ikon default.</p>
+            </div>
+            <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl active:scale-95 transition shadow-lg shadow-blue-200">Simpan</button>
+        </form>
+    </div>
+</div>
+
+<!-- ===================== MODAL: TOKO ===================== -->
+<div id="modal-toko" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl">
+        <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+            <h3 id="modal-toko-title" class="font-extrabold text-lg">Tambah Toko</h3>
+            <button onclick="closeModal('modal-toko')" class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center active:bg-slate-200"><i class="fas fa-times text-slate-600"></i></button>
+        </div>
+        <form id="form-toko" class="p-5 space-y-4" onsubmit="submitToko(event)">
+            <input type="hidden" id="toko-id" value="">
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Nama Toko / Cabang</label>
+                <input type="text" id="toko-nama" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold" placeholder="mis. Toko Cabang Bekasi">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Alamat (opsional)</label>
+                <textarea id="toko-alamat" rows="2" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold resize-none"></textarea>
+            </div>
+            <button type="submit" id="btn-submit-toko" class="btn-gold w-full font-bold py-3 rounded-xl active:scale-95 transition">Simpan Toko</button>
+        </form>
+    </div>
+</div>
+
+
+
+<!-- ===================== MODAL: SCAN BARCODE (kamera HP) ===================== -->
+<div id="modal-scan" class="fixed inset-0 bg-slate-950 z-[70] hidden items-center justify-center p-0">
+    <div class="relative w-full h-full flex flex-col">
+        <div class="flex items-center justify-between px-4 pt-[calc(1rem+env(safe-area-inset-top,0px))] pb-3 bg-gradient-to-b from-black/70 to-transparent absolute top-0 left-0 right-0 z-10">
+            <h3 class="text-white font-bold text-sm"><i class="fas fa-barcode mr-1.5"></i>Scan Barcode Produk</h3>
+            <button onclick="closeScanModal()" class="w-9 h-9 bg-white/15 rounded-full flex items-center justify-center text-white active:bg-white/25 transition"><i class="fas fa-times"></i></button>
+        </div>
+
+        <div class="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
+            <video id="scan-video" class="w-full h-full object-cover" playsinline muted></video>
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div class="w-[78%] max-w-xs aspect-[3/2] border-2 border-white/80 rounded-2xl shadow-[0_0_0_9999px_rgba(0,0,0,0.45)] relative">
+                    <div class="absolute -top-0.5 -left-0.5 w-6 h-6 border-t-4 border-l-4 border-blue-400 rounded-tl-2xl"></div>
+                    <div class="absolute -top-0.5 -right-0.5 w-6 h-6 border-t-4 border-r-4 border-blue-400 rounded-tr-2xl"></div>
+                    <div class="absolute -bottom-0.5 -left-0.5 w-6 h-6 border-b-4 border-l-4 border-blue-400 rounded-bl-2xl"></div>
+                    <div class="absolute -bottom-0.5 -right-0.5 w-6 h-6 border-b-4 border-r-4 border-blue-400 rounded-br-2xl"></div>
+                </div>
+            </div>
+            <div id="scan-status" class="absolute bottom-6 left-4 right-4 text-center text-white/80 text-xs font-bold bg-black/40 rounded-xl py-2 backdrop-blur-sm">
+                Arahkan kamera ke barcode produk
+            </div>
+        </div>
+
+        <div class="p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] bg-black/90">
+            <button onclick="closeScanModal()" class="w-full py-3 bg-white/10 text-white rounded-xl font-bold text-sm active:bg-white/20 transition">Batal</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== MODAL: USER (KASIR) ===================== -->
+<div id="modal-user" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto hide-scroll">
+        <div class="p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white">
+            <h3 id="user-modal-title" class="font-extrabold text-lg">Tambah User</h3>
+            <button onclick="closeModal('modal-user')" class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center active:bg-slate-200"><i class="fas fa-times text-slate-600"></i></button>
+        </div>
+        <form id="form-user" class="p-5 space-y-4" onsubmit="submitUser(event)">
+            <input type="hidden" id="user-id">
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Username</label>
+                <input type="text" id="user-username" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Nama Lengkap</label>
+                <input type="text" id="user-nama" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+            </div>
+            <div id="user-role-wrap">
+                <label class="block text-xs font-bold text-slate-500 mb-1">Role</label>
+                <select id="user-role" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                    <option value="kasir">Kasir</option>
+                    <option value="admin_toko">Admin Toko</option>
+                    <option value="super_admin">Super Admin</option>
+                </select>
+            </div>
+            <div id="user-toko-wrap" class="hidden">
+                <label class="block text-xs font-bold text-slate-500 mb-1">Toko</label>
+                <select id="user-toko" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold"></select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1" id="user-password-label">Password</label>
+                <input type="password" id="user-password" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold" placeholder="Minimal 6 karakter">
+                <p class="text-[10px] text-slate-400 font-medium mt-1" id="user-password-hint"></p>
+            </div>
+            <div id="user-active-wrap" class="hidden flex items-center gap-2">
+                <input type="checkbox" id="user-active" checked class="w-4 h-4">
+                <label for="user-active" class="text-xs font-bold text-slate-600">Akun aktif (bisa login)</label>
+            </div>
+            <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl active:scale-95 transition shadow-lg shadow-blue-200">Simpan</button>
+        </form>
+    </div>
+</div>
+
+<div id="modal-password" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto hide-scroll">
+        <div class="p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white">
+            <h3 class="font-extrabold text-lg">Ganti Password</h3>
+            <button onclick="closeModal('modal-password')" class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center active:bg-slate-200"><i class="fas fa-times text-slate-600"></i></button>
+        </div>
+        <form id="form-password" class="p-5 space-y-4" onsubmit="submitChangePassword(event)">
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Password Lama</label>
+                <input type="password" id="password-lama" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Password Baru</label>
+                <input type="password" id="password-baru" required minlength="6" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+                <p class="text-[10px] text-slate-400 font-medium mt-1">Minimal 6 karakter.</p>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">Konfirmasi Password Baru</label>
+                <input type="password" id="password-konfirmasi" required minlength="6" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold">
+            </div>
+            <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl active:scale-95 transition shadow-lg shadow-blue-200">Simpan Password Baru</button>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: KONFIRMASI (pengganti native confirm() browser yang tampilannya "murahan"/tidak konsisten dgn tema app) -->
+<div id="modal-confirm" class="fixed inset-0 bg-slate-900/70 z-[97] hidden items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl animate-slide-up text-center">
+        <div id="confirm-icon-wrap" class="w-14 h-14 mx-auto rounded-full bg-red-50 flex items-center justify-center mb-4">
+            <i id="confirm-icon" class="fas fa-triangle-exclamation text-xl text-red-500"></i>
+        </div>
+        <h3 id="confirm-title" class="font-extrabold text-lg text-slate-800 mb-1">Konfirmasi</h3>
+        <p id="confirm-message" class="text-sm text-slate-500 font-medium mb-6 whitespace-pre-line">Apakah Anda yakin?</p>
+        <div class="grid grid-cols-2 gap-3">
+            <button id="confirm-btn-cancel" onclick="resolveConfirm(false)" class="py-3.5 rounded-2xl border border-slate-200 text-slate-500 font-bold active:bg-slate-50 transition">Batal</button>
+            <button id="confirm-btn-ok" onclick="resolveConfirm(true)" class="py-3.5 rounded-2xl bg-red-500 text-white font-bold shadow-lg shadow-red-200 active:scale-[0.98] transition">Oke</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== TOAST ===================== -->
+<div id="toast" class="fixed top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-4 py-3 rounded-2xl shadow-2xl text-sm font-bold flex items-center gap-3 transform -translate-y-32 transition-transform duration-300 z-[100] pointer-events-none max-w-[90vw]">
+    <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center shrink-0"><i class="fas fa-info text-white text-xs" id="toast-icon"></i></div>
+    <span id="toast-msg" class="line-clamp-2">Pesan</span>
+</div>
+
+    <script src="/js/pages/admin-app.js"></script>
+    <script src="/js/register-sw.js"></script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+name = "umkm2"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+html_handling = "none"
+
+
+
+[[d1_databases]]
+binding = "DB"
+database_name = "umkm2"
+database_id = "6f60e653-887c-4fde-b09a-42e65fccf169"
+migrations_dir = "./migrations"
+
+
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "umkm2"
+
+
+
+[vars]
+# Karena frontend & backend kini disajikan dari domain yang SAMA (lewat
+# [assets] di atas), ALLOWED_ORIGIN hanya relevan untuk akses lintas-origin
+# (mis. testing dari file lokal atau domain lain).
+ALLOWED_ORIGIN = "https://umkm2.harvey-moeid.workers.dev" # comma-separated, sesuaikan domain Anda
+
+# Restriksi geografis (PRD Bagian 9). Set "false" saat masih testing dari luar
+# Indonesia, aktifkan ("true") saat sudah siap production.
+ENFORCE_GEO = "false"
+
+# ==========================================================
+# Optimasi penempatan edge (opsional)
+# ==========================================================
+[placement]
+mode = "smart"

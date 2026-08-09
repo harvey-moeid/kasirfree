@@ -1,0 +1,35 @@
+{
+  "name": "muidsoft-kasir",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:css && wrangler dev",
+    "build:css": "tailwindcss -i ./src-css/input.css -o ./public/styles.css",
+    "watch:css": "tailwindcss -i ./src-css/input.css -o ./public/styles.css --watch",
+    "deploy": "npm run vendor:fetch && npm run build:css && wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cap:sync": "npm run build:css && npx cap sync android",
+    "cap:open": "npx cap open android",
+    "cap:icons": "npx @capacitor/assets generate --android",
+    "vendor:fetch": "node scripts/vendor-fetch.mjs",
+    "test:unit": "node --test tests/unit/**/*.test.mjs",
+    "test:e2e": "node tests/e2e/run.mjs",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:e2e:install": "playwright install chromium"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/android": "^6.1.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260708.1",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.110.0",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/assets": "^3.0.5",
+    "playwright": "^1.47.0"
+  }
+}

@@ -1,0 +1,32 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kode
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependency npm
+        run: npm install
+
+      - name: Install browser Chromium (untuk e2e test)
+        run: npx playwright install --with-deps chromium
+
+      - name: Unit test (logika hitung pembayaran, dll)
+        run: npm run test:unit
+
+      - name: E2E test (wizard setup, login, role admin/kasir)
+        run: npm run test:e2e

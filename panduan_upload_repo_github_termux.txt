@@ -1,0 +1,57 @@
+CARA UPLOAD/PUSH REPO KE GITHUB LEWAT TERMUX
+================================================
+
+1. Install git (kalau belum)
+------------------------------
+pkg install git -y
+
+2. Setup identitas git (sekali saja)
+------------------------------
+git config --global user.name "harvey-moeid"
+git config --global user.email "harveymoeid@gmail.com"
+
+3. Masuk ke folder project
+------------------------------
+cd /path/ke/project
+
+4. Init git (kalau project belum ada git-nya)
+------------------------------
+git init
+git add .
+git commit -m "initial commit"
+
+5. Buat repo baru di GitHub
+------------------------------
+Buat dulu repo kosong di github.com (jangan centang "Add README" biar gak konflik), lalu:
+
+git remote add origin https://github.com/harvey-moeid/umkm2.git
+git branch -M main
+
+6. Push
+------------------------------
+git push -u origin main
+
+CATATAN PENTING SOAL LOGIN
+================================================
+Saat diminta password, JANGAN pakai password akun GitHub — GitHub sudah tidak
+menerima itu. Kamu perlu Personal Access Token (PAT):
+
+- Buka github.com -> Settings -> Developer settings -> Personal access tokens
+  -> Tokens (classic) -> Generate new token
+- Centang scope "repo"
+- Copy token, pakai token itu sebagai "password" saat git push
+
+Biar gak diminta token terus tiap push, simpan pakai credential helper:
+
+git config --global credential.helper store
+
+Setelah push pertama pakai token, selanjutnya otomatis tersimpan.
+
+ALTERNATIF: PAKAI GITHUB CLI (gh)
+================================================
+pkg install gh -y
+gh auth login
+
+Setelah login, bisa langsung bikin repo + push sekaligus:
+
+gh repo create nama-repo --push --source=. --remote=origin

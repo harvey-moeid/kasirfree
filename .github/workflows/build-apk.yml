@@ -1,0 +1,73 @@
+name: Build APK (Capacitor)
+
+# Jalan otomatis tiap push ke main/master, dan bisa dipicu manual lewat tab
+# "Actions" di GitHub (tombol "Run workflow") kapan pun butuh APK baru.
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kode
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup Java (dibutuhkan Gradle/Android build)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install dependency npm
+        run: npm install
+
+      - name: Download & self-host asset CDN (font, xlsx, Chart.js, qrcode)
+        # Selalu dijalankan fresh di sini juga (bukan cuma mengandalkan
+        # workflow "Vendor CDN Assets" yang commit ke repo) — supaya APK
+        # SELALU lengkap offline-ready walau langkah vendor manual itu
+        # lupa/belum pernah dijalankan.
+        run: npm run vendor:fetch
+
+      - name: Build CSS (Tailwind)
+        run: npm run build:css
+
+      - name: Tambahkan platform Android (Capacitor)
+        # Dibuat fresh tiap run (bukan disimpan di git) supaya folder android/
+        # tidak perlu di-commit — lebih bersih & selalu pakai template terbaru.
+        # Aman dijalankan berulang: kalau folder android/ belum ada, dibuat;
+        # kalau usdah ada (mis. dari commit manual), langkah ini dilewati.
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+
+      - name: Tambah izin Android yang dibutuhkan (kamera untuk scan barcode)
+        run: node scripts/patch-android-permissions.mjs
+
+      - name: Generate ikon & splash screen dari assets/icon.png
+        run: npx @capacitor/assets generate --android --iconBackgroundColor '#050D1C' --splashBackgroundColor '#050D1C' || true
+
+      - name: Sync aset web ke proyek Android
+        run: npx cap sync android
+
+      - name: Beri izin eksekusi gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build APK (debug, tanpa signing — untuk sideload/testing)
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Upload hasil APK sebagai artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: muidsoft-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30

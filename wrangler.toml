@@ -1,0 +1,20 @@
+# ==========================================================
+# Konfigurasi hosting — MODE FULL LOKAL
+# ==========================================================
+# Aplikasi ini sekarang jalan 100% di browser tiap HP (database SQLite lokal
+# via sql.js, gambar via IndexedDB). Cloudflare di sini HANYA menyajikan
+# file statis (HTML/CSS/JS/WASM) — tidak ada lagi Worker script yang
+# dieksekusi di server, dan tidak ada lagi D1/R2 (sudah tidak dipakai).
+# Setiap HP yang membuka situs ini akan punya datanya sendiri-sendiri,
+# tersimpan di HP itu saja.
+#
+# (Konfigurasi lama yang masih pakai D1/R2/Worker ada di
+#  wrangler.toml.bak.old-cloud-version kalau sewaktu-waktu perlu dicek lagi.)
+
+name = "muidsoft-kasir"
+compatibility_date = "2024-09-23"
+
+[assets]
+directory = "./public"
+html_handling = "auto-trailing-slash"
+
