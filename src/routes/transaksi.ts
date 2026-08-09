@@ -377,9 +377,28 @@ transaksiRoutes.post('/api/transaksi', requireAuth, async (c) => {
       201
     );
   } catch (err: any) {
-    const msg = String(err.message ?? '').includes('UNIQUE')
-      ? 'Transaksi dengan offline_uuid ini sudah pernah masuk'
-      : 'Gagal menyimpan transaksi';
+    const errMsg = String(err.message ?? '');
+    // FIX: sebelumnya semua UNIQUE violation diperlakukan sama — padahal ada
+    // dua kolom UNIQUE di tabel transaksi: offline_uuid (idempotency sah) dan
+    // kode_transaksi (tabrakan random, jarang tapi mungkin). Keduanya menghasilkan
+    // UNIQUE constraint error, tapi artinya sangat berbeda:
+    //   - offline_uuid → transaksi SUDAH tersimpan → kembalikan success:true
+    //     (sudah ditangani di atas, sebelum try-catch ini)
+    //   - kode_transaksi → transaksi BELUM tersimpan → harus success:false
+    //     supaya client/kasir tahu perlu coba lagi, BUKAN diam-diam dianggap
+    //     sudah sinkron.
+    // Dengan format kode baru (ms+rand, ~9 juta variasi/detik) collision ini
+    // sangat tidak mungkin, tapi tetap ditangani dengan benar untuk keamanan.
+    let msg: string;
+    if (errMsg.includes('UNIQUE') && errMsg.toLowerCase().includes('offline_uuid')) {
+      msg = 'Transaksi dengan offline_uuid ini sudah pernah masuk';
+    } else if (errMsg.includes('UNIQUE') && errMsg.toLowerCase().includes('kode_transaksi')) {
+      msg = 'Kode transaksi bentrok — coba kirim ulang (sangat jarang terjadi)';
+    } else if (errMsg.includes('UNIQUE')) {
+      msg = 'Data duplikat — coba kirim ulang';
+    } else {
+      msg = 'Gagal menyimpan transaksi';
+    }
     return c.json({ success: false, error: msg }, 500);
   }
 });

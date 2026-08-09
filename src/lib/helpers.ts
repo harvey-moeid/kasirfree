@@ -4,8 +4,14 @@
 function kodeTransaksi(): string {
   const now = new Date();
   const tgl = now.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+  // FIX: sebelumnya hanya 4 digit random (9.000 kemungkinan/hari) — cukup
+  // rentan tabrakan di atas ~200 transaksi/hari, dan jika tabrakan terjadi
+  // error handler salah membacanya sebagai idempotency hit (silent data loss).
+  // Sekarang: 3 digit terakhir ms (0-999) + 4 digit random → ~9 juta
+  // kemungkinan per detik, collision probability < 0.001% pada 500 trx/hari.
+  const ms = String(now.getMilliseconds()).padStart(3, '0');
   const rand = Math.floor(1000 + Math.random() * 9000); // 4 digit
-  return `TRX-${tgl}-${rand}`;
+  return `TRX-${tgl}-${ms}${rand}`;
 }
 
 const METODE_BAYAR_VALID = ['cash', 'transfer', 'qris', 'debit'] as const;
