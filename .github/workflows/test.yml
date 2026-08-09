@@ -22,6 +22,12 @@ jobs:
       - name: Install dependency npm
         run: npm install
 
+      - name: Type-check (src/ versi Cloudflare Worker)
+        run: npm run typecheck
+
+      - name: Cek migrations/ dan public/migrations/ tidak drift
+        run: npm run check:migrations
+
       - name: Unit test (logika hitung pembayaran, dll)
         run: node --test tests/unit/helpers.test.mjs
 

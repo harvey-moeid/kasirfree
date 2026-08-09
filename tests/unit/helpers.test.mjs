@@ -20,9 +20,9 @@ import {
 } from '../../public/js/lib/helpers.js';
 
 describe('kodeTransaksi', () => {
-  test('format harus TRX-YYYYMMDD-NNNN', () => {
+  test('format harus TRX-YYYYMMDD-NNNNNNN (3 digit ms + 4 digit random)', () => {
     const kode = kodeTransaksi();
-    assert.match(kode, /^TRX-\d{8}-\d{4}$/);
+    assert.match(kode, /^TRX-\d{8}-\d{7}$/);
   });
 
   test('dua panggilan berturut-turut kemungkinan besar beda (random 4 digit)', () => {

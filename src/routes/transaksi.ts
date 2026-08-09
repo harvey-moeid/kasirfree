@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { requireAuth, requireRole, type AppEnv } from '../lib/auth-middleware';
-import { catatLog, wibDateExpr, kodeTransaksi, hitungSplitPayment, hitungPembayaranSebagian } from '../lib/helpers';
+import { catatLog, wibDateExpr, kodeTransaksi, hitungSplitPayment, hitungPembayaranSebagian, type PembayaranInput } from '../lib/helpers';
 
 const transaksiRoutes = new Hono<AppEnv>();
 

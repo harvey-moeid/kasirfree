@@ -237,6 +237,16 @@ async function initLocalDb() {
   await localD1.flush(); // pastikan langsung tersimpan setelah instalasi/upgrade
   window.LocalDB = localD1;
 
+  // Minta browser JANGAN menghapus IndexedDB kita otomatis saat storage
+  // perangkat menipis ("best-effort" eviction Chrome/Android WebView bisa
+  // membuang data PWA yang jarang dibuka tanpa peringatan). persist() tidak
+  // menjamin 100% (browser tetap bisa menolak diam-diam), tapi jauh
+  // mengurangi risiko dibanding tidak minta sama sekali. Aman di-skip kalau
+  // API tidak didukung (mis. build APK/Capacitor WebView lama).
+  try {
+    if (navigator.storage?.persist) await navigator.storage.persist();
+  } catch (_) { /* best-effort, gagal diam-diam tidak fatal */ }
+
   // Simpan biar bisa flush cepat sebelum halaman ditutup/di-background-kan
   // (mis. kasir mengunci layar HP tepat setelah transaksi tersimpan).
   const flushNow = () => { localD1.flush(); };

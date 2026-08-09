@@ -22,7 +22,7 @@ const GAMBAR_MAX_BYTES = 2 * 1024 * 1024; // 2MB — cukup besar untuk foto prod
 // Kalau gambar_url mengarah ke foto yang kita simpan sendiri di R2
 // (path /api/gambar/xxx), ambil key R2-nya. Kalau itu URL eksternal
 // (https://...dari luar), return null — tidak ada yang perlu dibersihkan.
-function r2KeyDariGambarUrl(gambarUrl: string | null | undefined): string | null {
+export function r2KeyDariGambarUrl(gambarUrl: string | null | undefined): string | null {
   if (!gambarUrl) return null;
   const m = gambarUrl.match(/^\/api\/gambar\/(.+)$/);
   return m ? m[1] : null;

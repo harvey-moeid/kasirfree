@@ -1,7 +1,7 @@
 // Kumpulan helper murni (tanpa dependensi Hono context) dipakai lintas modul routes/.
 // Dipindah dari src/index.ts (sebelumnya semua route + helper ada dalam 1 file).
 
-function kodeTransaksi(): string {
+export function kodeTransaksi(): string {
   const now = new Date();
   const tgl = now.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
   // FIX: sebelumnya hanya 4 digit random (9.000 kemungkinan/hari) — cukup
@@ -17,7 +17,7 @@ function kodeTransaksi(): string {
 const METODE_BAYAR_VALID = ['cash', 'transfer', 'qris', 'debit'] as const;
 type MetodeBayar = (typeof METODE_BAYAR_VALID)[number];
 
-interface PembayaranInput {
+export interface PembayaranInput {
   metode: MetodeBayar;
   jumlah: number;
 }
@@ -29,7 +29,7 @@ interface PembayaranInput {
  * "kembalian" fisik). Jadi non-cash tidak boleh melebihi sisa tagihan
  * setelah dikurangi metode non-cash lain; cash yang menutup sisanya.
  */
-function hitungSplitPayment(
+export function hitungSplitPayment(
   pembayaran: any,
   totalBayar: number
 ): { ok: true; entries: PembayaranInput[]; cashTotal: number; kembalian: number; metodeFinal: string } | { ok: false; error: string } {
@@ -83,7 +83,7 @@ function hitungSplitPayment(
  * boleh melebihi batas atas (total tagihan untuk DP, atau sisa tagihan untuk
  * pelunasan) — supaya tidak ada nominal "nyasar" yang tercatat berlebih.
  */
-function hitungPembayaranSebagian(
+export function hitungPembayaranSebagian(
   pembayaran: any,
   batasAtas: number
 ): { ok: true; entries: PembayaranInput[]; cashTotal: number; metodeFinal: string; totalDiterima: number } | { ok: false; error: string } {
@@ -118,16 +118,16 @@ function hitungPembayaranSebagian(
 // transaksi yang terjadi jam 00:00–06:59 WIB (yang secara UTC masih "kemarin").
 // Catatan: hardcode +7 jam karena PRD fokus Indonesia (geo-restriction ID).
 // Kalau nanti ekspansi ke zona waktu lain (WITA/WIT), ini perlu dibuat dinamis.
-function wibDateExpr(column: string): string {
+export function wibDateExpr(column: string): string {
   return `date(datetime(${column}, '+7 hours'))`;
 }
 
-function todayWIB(): string {
+export function todayWIB(): string {
   return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 /** Jam (00-23) dalam WIB dari kolom datetime UTC — dipakai laporan jam ramai. */
-function wibHourExpr(column: string): string {
+export function wibHourExpr(column: string): string {
   return `strftime('%H', datetime(${column}, '+7 hours'))`;
 }
 
@@ -136,7 +136,7 @@ function wibHourExpr(column: string): string {
  * role admin_toko (agar admin toko A tidak bisa mengubah produk toko B).
  * super_admin bisa akses semua toko.
  */
-async function getProdukAtauTolak(
+export async function getProdukAtauTolak(
   db: D1Database,
   id: string | number | undefined,
   session: { role: string; toko_id: number | null }
@@ -161,7 +161,7 @@ async function getProdukAtauTolak(
  * WAJIB atomik dengan mutasi stok. Gagal mencatat log TIDAK BOLEH menggagalkan
  * aksi utamanya, jadi errornya cukup di-swallow (di-log ke console saja).
  */
-async function catatLog(
+export async function catatLog(
   db: D1Database,
   session: { uid: number; role: string; toko_id: number | null },
   aksi: 'tambah' | 'ubah' | 'nonaktifkan' | 'batalkan' | 'hapus' | 'lunasi',

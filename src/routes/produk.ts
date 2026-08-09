@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth, requireRole, type AppEnv } from '../lib/auth-middleware';
 import { catatLog, getProdukAtauTolak } from '../lib/helpers';
+import { r2KeyDariGambarUrl } from './upload';
 
 const produkRoutes = new Hono<AppEnv>();
 
