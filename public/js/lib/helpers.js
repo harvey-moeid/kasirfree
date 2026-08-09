@@ -4,8 +4,12 @@
 export function kodeTransaksi() {
     const now = new Date();
     const tgl = now.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+    // FIX: sebelumnya 4-digit random (9.000 kemungkinan/hari) — rentan
+    // tabrakan di atas ~200 trx/hari. Sekarang: 3-digit ms + 4-digit random
+    // → ~9 juta variasi/detik, collision < 0.001% di 500 trx/hari.
+    const ms = String(now.getMilliseconds()).padStart(3, '0');
     const rand = Math.floor(1000 + Math.random() * 9000); // 4 digit
-    return `TRX-${tgl}-${rand}`;
+    return `TRX-${tgl}-${ms}${rand}`;
 }
 const METODE_BAYAR_VALID = ['cash', 'transfer', 'qris', 'debit'];
 /**

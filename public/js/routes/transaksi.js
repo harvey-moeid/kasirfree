@@ -292,9 +292,19 @@ transaksiRoutes.post('/api/transaksi', requireAuth, async (c) => {
         }, 201);
     }
     catch (err) {
-        const msg = String(err.message ?? '').includes('UNIQUE')
-            ? 'Transaksi dengan offline_uuid ini sudah pernah masuk'
-            : 'Gagal menyimpan transaksi';
+        const errMsg = String(err.message ?? '');
+        let msg;
+        if (errMsg.includes('UNIQUE') && errMsg.toLowerCase().includes('offline_uuid')) {
+            msg = 'Transaksi dengan offline_uuid ini sudah pernah masuk';
+        } else if (errMsg.includes('UNIQUE') && errMsg.toLowerCase().includes('kode_transaksi')) {
+            // Collision pada kode_transaksi — transaksi BELUM tersimpan, klien
+            // harus coba lagi (dengan format kode baru ini sangat jarang terjadi)
+            msg = 'Kode transaksi bentrok — coba kirim ulang';
+        } else if (errMsg.includes('UNIQUE')) {
+            msg = 'Data duplikat — coba kirim ulang';
+        } else {
+            msg = 'Gagal menyimpan transaksi';
+        }
         return c.json({ success: false, error: msg }, 500);
     }
 });
@@ -375,7 +385,12 @@ transaksiRoutes.delete('/api/transaksi/bulk', requireAuth, requireRole('super_ad
         if (jumlah === 0) {
             return c.json({ success: true, jumlah_dihapus: 0, message: 'Tidak ada transaksi yang cocok dengan rentang ini' });
         }
+        // FIX: sebelumnya hanya menghapus detail_transaksi dan transaksi,
+        // meninggalkan baris transaksi_pembayaran dan transaksi_pelunasan
+        // sebagai orphan (schema tidak pakai ON DELETE CASCADE).
         await db.batch([
+            db.prepare(`DELETE FROM transaksi_pelunasan WHERE transaksi_id IN (SELECT id FROM transaksi ${whereSql})`).bind(...params),
+            db.prepare(`DELETE FROM transaksi_pembayaran WHERE transaksi_id IN (SELECT id FROM transaksi ${whereSql})`).bind(...params),
             db.prepare(`DELETE FROM detail_transaksi WHERE transaksi_id IN (SELECT id FROM transaksi ${whereSql})`).bind(...params),
             db.prepare(`DELETE FROM transaksi ${whereSql}`).bind(...params),
         ]);
