@@ -25,6 +25,7 @@ const MIGRATION_FILES = [
   '0011_batal_per_item.sql',
   '0012_status_bayar_preorder.sql',
   '0013_kasir_toko.sql',
+  '0014_pelunasan_shift.sql',
 ];
 
 const DB_FILE_KEY = 'sqlite_db_v1';
@@ -139,41 +140,101 @@ async function fetchText(url) {
   return res.text();
 }
 
-async function buildFreshDatabase(SQL) {
-  const db = new SQL.Database();
-  for (const file of MIGRATION_FILES) {
-    const sql = await fetchText('/migrations/' + file);
-    db.run(sql);
+/**
+ * Terapkan migration yang belum dijalankan ke rawDb (sql.js Database).
+ *
+ * Versi DB dilacak via SQLite PRAGMA user_version (integer di header file DB,
+ * tidak butuh tabel tambahan). Setiap migration yang berhasil menaikkan
+ * user_version sebesar 1, sehingga startup berikutnya tahu mulai dari mana.
+ *
+ * Masalah transisi: DB lama yang dibuat sebelum sistem ini ada tidak punya
+ * user_version (= 0). Supaya migration 0001-0013 tidak diulang (dan gagal
+ * karena tabel sudah ada), kita deteksi keberadaan tabel 'transaksi':
+ *   - Tabel ada  → DB lama → anggap sudah di versi 13, set user_version = 13
+ *   - Tabel tidak ada → DB benar-benar baru → jalankan semua dari awal
+ *
+ * Tiap migration dijalankan dalam transaksi eksplisit (BEGIN/COMMIT) supaya
+ * jika satu migration gagal di tengah jalan, DB tidak tertinggal dalam
+ * keadaan setengah-setengah.
+ *
+ * @returns {{ isFreshInstall: boolean }}
+ */
+async function applyMigrations(rawDb) {
+  // Baca versi migration saat ini dari header DB
+  let currentVersion = 0;
+  try {
+    const rows = rawDb.exec('PRAGMA user_version');
+    currentVersion = rows[0]?.values[0][0] ?? 0;
+  } catch (_) { /* db baru, user_version belum ada */ }
+
+  // Deteksi DB lama vs benar-benar baru
+  let isFreshInstall = false;
+  if (currentVersion === 0) {
+    const tableRows = rawDb.exec(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='transaksi'"
+    );
+    const hasTransaksi = tableRows.length > 0 && tableRows[0]?.values?.length > 0;
+    if (hasTransaksi) {
+      // DB sudah jalan sebelum version tracking ditambahkan — skip 0001-0013
+      currentVersion = 13;
+      rawDb.run('PRAGMA user_version = 13');
+    } else {
+      isFreshInstall = true; // DB kosong, jalankan semua migration
+    }
   }
-  // Migration 0013 sudah membersihkan produk/kategori/bahan-baku demo &
-  // mengganti nama toko jadi "muidsoft" secara default. Yang masih
-  // tersisa & PERLU dibersihkan untuk instalasi lokal baru: 2 akun demo
-  // (admin/kasir1) dari migration 0001 — kredensialnya publik/diketahui
-  // (ada di riwayat kode), jadi tidak aman dipakai apa adanya. Akun
-  // sesungguhnya (1 password) dibuat oleh local-app.js saat pertama kali
-  // dipakai.
-  db.run('DELETE FROM users;');
-  return db;
+
+  // Jalankan migration yang belum diaplikasikan
+  for (let i = currentVersion; i < MIGRATION_FILES.length; i++) {
+    const sql = await fetchText('/migrations/' + MIGRATION_FILES[i]);
+    rawDb.run('BEGIN');
+    try {
+      rawDb.run(sql);
+      rawDb.run('COMMIT');
+      // Set user_version setelah COMMIT agar tahan crash (kalau crash antara
+      // COMMIT dan PRAGMA, migration sudah apply tapi version belum naik —
+      // migration akan dicoba ulang saat startup berikutnya; migration perlu
+      // idempotent atau handler error di atas perlu menangani ini).
+      rawDb.run(`PRAGMA user_version = ${i + 1}`);
+    } catch (err) {
+      try { rawDb.run('ROLLBACK'); } catch (_) {}
+      console.error(`Migration ${MIGRATION_FILES[i]} gagal:`, err);
+      throw new Error(`Gagal menerapkan migration ${MIGRATION_FILES[i]}: ${err.message}`);
+    }
+  }
+
+  return { isFreshInstall };
 }
 
 async function initLocalDb() {
   const SQL = await initSqlJs({ locateFile: (file) => new URL('/js/vendor/' + file, window.location.origin).href });
 
   const saved = await idbGet('files', DB_FILE_KEY);
-  let sqlJsDb;
+  let rawSqlDb;
+
   if (saved) {
     try {
-      sqlJsDb = new SQL.Database(new Uint8Array(saved));
+      rawSqlDb = new SQL.Database(new Uint8Array(saved));
     } catch (err) {
       console.error('Database tersimpan rusak, membuat baru:', err);
-      sqlJsDb = await buildFreshDatabase(SQL);
+      rawSqlDb = new SQL.Database();
     }
   } else {
-    sqlJsDb = await buildFreshDatabase(SQL);
+    rawSqlDb = new SQL.Database();
   }
 
-  const localD1 = new LocalD1(sqlJsDb);
-  await localD1.flush(); // pastikan langsung tersimpan setelah instalasi awal
+  // Terapkan semua migration yang belum dijalankan (termasuk upgrade untuk
+  // DB lama yang baru pertama kali melewati sistem version tracking ini).
+  const { isFreshInstall } = await applyMigrations(rawSqlDb);
+
+  // Migration 0001 membuat 2 akun demo (admin/kasir1) dengan password yang
+  // ada di riwayat kode publik — hapus hanya untuk instalasi BARU supaya
+  // user lama tidak kehilangan akunnya saat upgrade.
+  if (isFreshInstall) {
+    rawSqlDb.run('DELETE FROM users;');
+  }
+
+  const localD1 = new LocalD1(rawSqlDb);
+  await localD1.flush(); // pastikan langsung tersimpan setelah instalasi/upgrade
   window.LocalDB = localD1;
 
   // Simpan biar bisa flush cepat sebelum halaman ditutup/di-background-kan
