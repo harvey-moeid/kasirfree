@@ -263,37 +263,65 @@ laporanRoutes.get('/api/laporan/jam-ramai', requireAuth, async (c) => {
 
 /**
  * Kinerja per kasir/staff — breakdown "siapa jual berapa" dalam rentang
- * tanggal filter. Dua sumber digabung di JS (bukan satu JOIN besar) karena
- * beda level agregasi: omzet dihitung dari detail_transaksi (supaya item
- * yang dibatalkan per-item tidak ikut kehitung, sama seperti /laporan/margin),
- * sedangkan selisih kas dihitung dari shift_kasir yang sudah ditutup
- * (waktu_tutup, bukan waktu_buka, supaya konsisten dgn kapan shift itu
- * "selesai" dan masuk rentang filter tanggal).
+ * tanggal filter. Tiga sumber digabung di JS karena beda level agregasi:
+ *
+ * 1. sqlTrx (level transaksi): omzet kas yang benar-benar masuk — memakai
+ *    total_bayar (setelah diskon+pajak), bukan SUM(dt.subtotal) yang sebelumnya
+ *    dipakai (sebelum diskon). Ini agar angka ini KONSISTEN dengan
+ *    /laporan/harian. Preorder DP/belum_bayar hanya dihitung jumlah_dp-nya
+ *    (sama seperti fix #3). Untuk menghindari double-count karena JOIN
+ *    many-to-one (1 transaksi punya banyak baris detail), total_bayar dihitung
+ *    di query terpisah dari qty — bukan SUM(total_bayar) di query JOIN detail.
+ *
+ * 2. sqlItem (level detail_transaksi): qty item aktif per kasir — tetap di
+ *    level item agar item yang dibatalkan per-item benar dikecualikan.
+ *
+ * 3. sqlShift: rekonsiliasi kas dari shift_kasir yang sudah ditutup.
  */
 laporanRoutes.get('/api/laporan/per-kasir', requireAuth, requireRole('super_admin', 'admin_toko'), async (c) => {
   const db = c.env.DB;
   const session = c.get('session');
   const { dari, sampai } = c.req.query();
 
-  let sqlOmzet = `
+  const dateFilter: any[] = [];
+  let dateWhere = '';
+  if (dari) { dateWhere += ` AND ${wibDateExpr('t.created_at')} >= date(?)`; dateFilter.push(dari); }
+  if (sampai) { dateWhere += ` AND ${wibDateExpr('t.created_at')} <= date(?)`; dateFilter.push(sampai); }
+  const tokoWhere = session.role !== 'super_admin' ? ' AND t.toko_id = ?' : '';
+  const tokoParam = session.role !== 'super_admin' ? [session.toko_id] : [];
+
+  // Query 1: omzet kas per kasir (level transaksi, setelah diskon, DP-corrected)
+  let sqlTrx = `
     SELECT
       u.id as kasir_id,
       u.nama_lengkap,
       u.username,
       u.is_active,
-      COUNT(DISTINCT t.id) as jumlah_transaksi,
-      COALESCE(SUM(dt.subtotal), 0) as total_omzet,
-      COALESCE(SUM(dt.qty), 0) as total_item_terjual
+      COUNT(t.id) as jumlah_transaksi,
+      COALESCE(SUM(
+        CASE
+          WHEN t.is_preorder = 1 AND t.status_bayar IN ('dp', 'belum_bayar') THEN t.jumlah_dp
+          ELSE t.total_bayar
+        END
+      ), 0) as total_omzet
+    FROM transaksi t
+    JOIN users u ON u.id = t.kasir_id
+    WHERE t.status = 'selesai'${dateWhere}${tokoWhere}
+    GROUP BY u.id ORDER BY total_omzet DESC`;
+  const paramsTrx = [...dateFilter, ...tokoParam];
+
+  // Query 2: qty item aktif per kasir (level detail, exclude cancelled items)
+  let sqlItem = `
+    SELECT t.kasir_id, COALESCE(SUM(dt.qty), 0) as total_item_terjual
     FROM detail_transaksi dt
     JOIN transaksi t ON t.id = dt.transaksi_id
-    JOIN users u ON u.id = t.kasir_id
-    WHERE t.status = 'selesai' AND dt.is_batal = 0`;
-  const paramsOmzet: any[] = [];
-  if (dari) { sqlOmzet += ` AND ${wibDateExpr('t.created_at')} >= date(?)`; paramsOmzet.push(dari); }
-  if (sampai) { sqlOmzet += ` AND ${wibDateExpr('t.created_at')} <= date(?)`; paramsOmzet.push(sampai); }
-  if (session.role !== 'super_admin') { sqlOmzet += ' AND t.toko_id = ?'; paramsOmzet.push(session.toko_id); }
-  sqlOmzet += ' GROUP BY u.id ORDER BY total_omzet DESC';
+    WHERE t.status = 'selesai' AND dt.is_batal = 0${dateWhere}${tokoWhere}
+    GROUP BY t.kasir_id`;
+  const paramsItem = [...dateFilter, ...tokoParam];
 
+  // Query 3: shift rekonsiliasi (waktu_tutup supaya konsisten dgn kapan shift selesai)
+  const shiftTokoWhere = session.role !== 'super_admin' ? ' AND toko_id = ?' : '';
+  const shiftTokoParam = session.role !== 'super_admin' ? [session.toko_id] : [];
   let sqlShift = `
     SELECT
       kasir_id,
@@ -302,29 +330,32 @@ laporanRoutes.get('/api/laporan/per-kasir', requireAuth, requireRole('super_admi
       COALESCE(SUM(CASE WHEN selisih < 0 THEN 1 ELSE 0 END), 0) as shift_kurang
     FROM shift_kasir
     WHERE status = 'tutup'`;
-  const paramsShift: any[] = [];
+  const paramsShift: any[] = [...shiftTokoParam];
   if (dari) { sqlShift += ` AND ${wibDateExpr('waktu_tutup')} >= date(?)`; paramsShift.push(dari); }
   if (sampai) { sqlShift += ` AND ${wibDateExpr('waktu_tutup')} <= date(?)`; paramsShift.push(sampai); }
-  if (session.role !== 'super_admin') { sqlShift += ' AND toko_id = ?'; paramsShift.push(session.toko_id); }
   sqlShift += ' GROUP BY kasir_id';
 
-  const [omzetRes, shiftRes] = await Promise.all([
-    db.prepare(sqlOmzet).bind(...paramsOmzet).all<any>(),
+  const [trxRes, itemRes, shiftRes] = await Promise.all([
+    db.prepare(sqlTrx).bind(...paramsTrx).all<any>(),
+    db.prepare(sqlItem).bind(...paramsItem).all<any>(),
     db.prepare(sqlShift).bind(...paramsShift).all<any>(),
   ]);
 
+  const itemMap = new Map(itemRes.results.map((r: any) => [r.kasir_id, r.total_item_terjual]));
   const shiftMap = new Map(shiftRes.results.map((r: any) => [r.kasir_id, r]));
-  const data = omzetRes.results.map((r: any) => {
+
+  const data = trxRes.results.map((r: any) => {
     const shift = shiftMap.get(r.kasir_id) as any;
+    const totalOmzet = r.total_omzet;
     return {
       kasir_id: r.kasir_id,
       nama_lengkap: r.nama_lengkap,
       username: r.username,
       is_active: r.is_active,
       jumlah_transaksi: r.jumlah_transaksi,
-      total_omzet: r.total_omzet,
-      total_item_terjual: r.total_item_terjual,
-      rata_rata_transaksi: r.jumlah_transaksi > 0 ? Math.round(r.total_omzet / r.jumlah_transaksi) : 0,
+      total_omzet: totalOmzet,
+      total_item_terjual: itemMap.get(r.kasir_id) ?? 0,
+      rata_rata_transaksi: r.jumlah_transaksi > 0 ? Math.round(totalOmzet / r.jumlah_transaksi) : 0,
       jumlah_shift: shift?.jumlah_shift ?? 0,
       total_selisih_kas: shift?.total_selisih ?? 0,
       shift_kurang: shift?.shift_kurang ?? 0,
