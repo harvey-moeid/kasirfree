@@ -1,10 +1,15 @@
 # Referensi API — muidsoft POS
 
-Base URL: `https://umkm.ppicwkb.workers.dev/api` (atau `http://localhost:8787/api`
-saat `wrangler dev`). Semua endpoint (kecuali yang ditandai **publik**) butuh
-cookie sesi hasil login — kirim dengan `credentials: 'include'`.
+> ⚠️ Dokumen ini ditulis untuk versi cloud lama (Cloudflare Worker + D1).
+> Aplikasi sekarang jalan **100% lokal di browser** (lihat
+> `PANDUAN-MODE-LOKAL.md`) — tidak ada Base URL/server sungguhan lagi,
+> tapi bentuk request/response tiap endpoint di bawah ini **masih akurat**
+> karena router lokal (`public/js/local-app.js` + `public/js/routes/*.js`)
+> sengaja dibuat meniru persis kontrak API yang sama. Base URL & cookie
+> sesi di bawah tidak berlaku lagi; abaikan bagian itu saja.
 
-Kode sumber: `src/index.ts`. Kalau ada perbedaan dengan dokumen ini,
+Kode sumber (implementasi yang BENERAN jalan): `public/js/local-app.js` +
+`public/js/routes/*.js`. Kalau ada perbedaan dengan dokumen ini,
 **kode sumber yang benar** — dokumen ini dibuat dari hasil baca kode per
 14 Juli 2026, tapi bisa saja kode berubah lagi setelahnya.
 
@@ -185,7 +190,7 @@ berstatus `dibatalkan`.
   hasil `DELETE /api/transaksi/bulk` beneran hilang dari database.
 - **Zona waktu.** Semua `created_at` disimpan UTC. Perbandingan "hari ini"/
   filter tanggal selalu digeser +7 jam (WIB) di level SQL lewat helper
-  `wibDateExpr()`/`wibHourExpr()` di `src/index.ts` — jangan bandingkan
+  `wibDateExpr()`/`wibHourExpr()` di `public/js/lib/helpers.js` — jangan bandingkan
   tanggal mentah tanpa helper ini kalau menambah query baru.
 - **HPP di-snapshot, bukan dihitung ulang.** `detail_transaksi.hpp_satuan`
   diisi sekali saat transaksi dibuat (dari resep yang berlaku saat itu),
