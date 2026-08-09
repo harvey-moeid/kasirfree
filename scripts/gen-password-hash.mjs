@@ -1,11 +1,13 @@
 // Generate PBKDF2-SHA256 hash + salt untuk kolom users.password_hash / password_salt
-// Algoritma HARUS identik dengan src/lib/crypto.ts (100.000 iterasi, SHA-256, 256 bit).
+// Algoritma HARUS identik dengan public/js/crypto.js (100.000 iterasi, SHA-256, 256 bit)
+// — itu yang beneran dipakai runtime (mode lokal, sql.js di browser).
 //
 // Pemakaian:
 //   node scripts/gen-password-hash.mjs "passwordBaru123"
 //
-// Lalu copy hasil hash & salt ke migrations/0001_init.sql (seed) atau ke
-// perintah UPDATE manual lewat wrangler d1 execute.
+// Catatan: untuk pemakaian normal, akun pertama (super_admin) dibuat lewat
+// wizard "Setup Awal" di halaman login — script ini untuk kasus khusus
+// (reset manual password langsung ke isi database SQLite lokal).
 
 const PBKDF2_ITERATIONS = 100_000;
 

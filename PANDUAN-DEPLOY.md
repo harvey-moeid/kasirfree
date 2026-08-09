@@ -18,8 +18,9 @@ session.
 datanya sendiri-sendiri (produk, transaksi, akun user, dst), tersimpan di
 HP itu saja — **bukan** database bersama seperti aplikasi cloud biasa.
 Kalau kamu familiar dengan versi lama project ini yang pakai D1/R2/Worker,
-konfigurasi itu ada di `wrangler.toml.bak.old-cloud-version` untuk
-referensi, tapi **sudah tidak dipakai**.
+kode & konfigurasinya (`src/`, `wrangler.toml.bak.old-cloud-version`) sudah
+dihapus dari repo ini karena sudah lama tidak dipakai — tersedia di riwayat
+git kalau sewaktu-waktu perlu dicek lagi.
 
 ---
 

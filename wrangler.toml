@@ -8,8 +8,10 @@
 # Setiap HP yang membuka situs ini akan punya datanya sendiri-sendiri,
 # tersimpan di HP itu saja.
 #
-# (Konfigurasi lama yang masih pakai D1/R2/Worker ada di
-#  wrangler.toml.bak.old-cloud-version kalau sewaktu-waktu perlu dicek lagi.)
+# (Konfigurasi lama yang masih pakai D1/R2/Worker sudah dihapus dari repo
+#  ini — src/index.ts dkk beserta wrangler.toml.bak.old-cloud-version.
+#  Kalau perlu dicek lagi, ada di riwayat git sebelum commit "chore:
+#  bersihkan repo — hapus kode Worker cloud lama yang sudah mati".)
 
 name = "kasirfree"
 compatibility_date = "2024-09-23"
