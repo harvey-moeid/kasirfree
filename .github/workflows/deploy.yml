@@ -3,7 +3,7 @@ name: Deploy ke Cloudflare Workers
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 jobs:
