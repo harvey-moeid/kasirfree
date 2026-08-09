@@ -11,7 +11,7 @@
 # (Konfigurasi lama yang masih pakai D1/R2/Worker ada di
 #  wrangler.toml.bak.old-cloud-version kalau sewaktu-waktu perlu dicek lagi.)
 
-name = "muidsoft-kasir"
+name = "kasirfree"
 compatibility_date = "2024-09-23"
 
 [assets]
